@@ -43,13 +43,6 @@ void loop() {
       break;
     case 1://거북목
       Red_b=255;
-      Green_b=255;
-      Blue_b=0;
-      led_write(Red_b,Green_b,Blue_b,1);
-      noTone(Buzzer_pin);
-      break;
-    case 2://졸때
-      Red_b=255;
       Green_b=0;
       Blue_b=0;
       led_write(Red_b,Green_b,Blue_b,1);
