@@ -1,3 +1,29 @@
+Alg main{
+
+
+
+    System Init
+
+
+
+    while(true){
+
+
+
+        if(Start Button){
+
+            Session();
+
+        }
+
+
+
+    } 
+
+
+
+}
+
 Alg Session{
 
     while(!End Button){
