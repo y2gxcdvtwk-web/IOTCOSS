@@ -15,7 +15,7 @@ mp_draw = mp.solutions.drawing_utils
 cap = cv2.VideoCapture(0)
 print(cap.isOpened())
 if not cap.isOpened():
-    print("camera not opend")
+    print("camera is not opened")
     exit()
 while cap.isOpened():
     success, frame = cap.read()
