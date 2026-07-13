@@ -13,9 +13,12 @@ pose = mp_pose.Pose(
 mp_draw = mp.solutions.drawing_utils
 
 cap = cv2.VideoCapture(0)
-
+if not cap.isOpened():
+    print("카메라를 열 수 없습니다.")
+    exit()
 while cap.isOpened():
     success, frame = cap.read()
+    print(success)
 
     if not success:
         break
