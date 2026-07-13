@@ -2,36 +2,34 @@ import cv2
 import mediapipe as mp
 import math
 import time
+import csv
 from datetime import datetime
 
-# ==========================
-# MediaPipe 초기화
-# ==========================
+# ===== Configuration =====
+CAPTURE_INTERVAL = 300      # 5 minutes
+ANGLE_WARNING = 80
+ANGLE_TURTLENECK = 70
 
+# ===== MediaPipe =====
 mp_pose = mp.solutions.pose
-
 pose = mp_pose.Pose(
     static_image_mode=True,
-    model_complexity=1,
     min_detection_confidence=0.5
 )
 
-# ==========================
-# 카메라 연결
-# ==========================
-
+# ===== Camera =====
 cap = cv2.VideoCapture(0)
 
 if not cap.isOpened():
-    print("카메라를 열 수 없습니다.")
+    print("Camera connection failed.")
     exit()
 
-# ==========================
-# 함수
-# ==========================
+# ===== Create CSV =====
+with open("log.csv", "a", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(["Time", "Angle", "State"])
 
-def capture_image():
-
+def capture():
     ret, frame = cap.read()
 
     if not ret:
@@ -40,127 +38,91 @@ def capture_image():
     return frame
 
 
-def preprocess(frame):
+def detect(frame):
 
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    return rgb
-
-
-def extract_landmark(rgb):
 
     result = pose.process(rgb)
 
     if not result.pose_landmarks:
-        return None
+        return None, None
 
-    landmark = result.pose_landmarks.landmark
+    lm = result.pose_landmarks.landmark
 
-    return landmark
+    leftEar = lm[7]
+    rightEar = lm[8]
 
+    leftShoulder = lm[11]
+    rightShoulder = lm[12]
 
-def calculate_angle(landmark):
+    earX = (leftEar.x + rightEar.x) / 2
+    earY = (leftEar.y + rightEar.y) / 2
 
-    # 양쪽 귀 평균
-    ear_x = (landmark[7].x + landmark[8].x) / 2
-    ear_y = (landmark[7].y + landmark[8].y) / 2
+    shoulderX = (leftShoulder.x + rightShoulder.x) / 2
+    shoulderY = (leftShoulder.y + rightShoulder.y) / 2
 
-    # 양쪽 어깨 평균
-    shoulder_x = (landmark[11].x + landmark[12].x) / 2
-    shoulder_y = (landmark[11].y + landmark[12].y) / 2
-
-    dx = ear_x - shoulder_x
-    dy = shoulder_y - ear_y
+    dx = earX - shoulderX
+    dy = shoulderY - earY
 
     angle = math.degrees(math.atan2(dy, dx))
 
-    return angle
+    if angle < ANGLE_TURTLENECK:
+        state = "Turtle Neck"
 
-
-def turtle_neck_detection(angle):
-
-    # 실험하면서 수정할 값
-    if angle < 70:
-        return "거북목"
-
-    elif angle < 80:
-        return "주의"
+    elif angle < ANGLE_WARNING:
+        state = "Warning"
 
     else:
-        return "정상"
+        state = "Normal"
+
+    return angle, state
 
 
-def save_image(frame):
+def save(frame, angle, state):
 
-    filename = datetime.now().strftime("%Y%m%d_%H%M%S.jpg")
+    now = datetime.now()
+
+    filename = now.strftime("%Y%m%d_%H%M%S.jpg")
 
     cv2.imwrite(filename, frame)
 
-
-def output_result(angle, result):
-
-    print("-----------------------------------")
-    print("목 각도 : {:.2f}".format(angle))
-    print("판단 :", result)
-    print("-----------------------------------")
+    with open("log.csv", "a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([now, angle, state])
 
 
-# ==========================
-# Main
-# ==========================
+def output(angle, state):
 
-print("===== 시스템 시작 =====")
+    print("--------------------------------")
+    print("Time  :", datetime.now())
+    print("Angle :", round(angle, 2))
+    print("State :", state)
+    print("--------------------------------")
 
-try:
+    # TODO: Send result to Arduino
+    # TODO: Control LED
+    # TODO: Control Desk
+    # TODO: Display on LCD
 
-    while True:
 
-        print("사진 촬영...")
+print("===== System Started =====")
 
-        frame = capture_image()
+while True:
 
-        if frame is None:
-            print("사진 촬영 실패")
-            continue
+    frame = capture()
 
-        rgb = preprocess(frame)
+    if frame is None:
+        print("Image capture failed.")
+        continue
 
-        landmark = extract_landmark(rgb)
+    angle, state = detect(frame)
 
-        if landmark is None:
+    if angle is None:
+        print("No person detected.")
 
-            print("사람을 찾지 못했습니다.")
+    else:
+        output(angle, state)
+        save(frame, angle, state)
 
-        else:
-
-            angle = calculate_angle(landmark)
-
-            result = turtle_neck_detection(angle)
-
-            output_result(angle, result)
-
-            save_image(frame)
-
-            # --------------------------
-            # 여기에서 CSE로 결과 전달
-            # send_to_CSE(angle)
-            # --------------------------
-
-            # --------------------------
-            # 거북목이면 책상 제어
-            # control_desk()
-            # --------------------------
-
-        print("5분 대기...\n")
-
-        time.sleep(300)
-
-except KeyboardInterrupt:
-
-    print("프로그램 종료")
-
-finally:
-
-    cap.release()
-
-    cv2.destroyAllWindows()
+    print("Waiting for next capture (5 minutes)...")
+    time.sleep(CAPTURE_INTERVAL)
