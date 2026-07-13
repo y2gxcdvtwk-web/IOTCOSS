@@ -22,6 +22,8 @@ HEIGHT = 480
 
 CAPTURE_INTERVAL = 1.5
 
+sx = WIDTH / 640
+sy = HEIGHT / 640
 
 # =========================
 # YOLO TFLite Load
@@ -144,8 +146,8 @@ def draw_skeleton(frame, points):
 
     for name, point in points.items():
 
-        x = int(point[0])
-        y = int(point[1])
+        x = int(point[0] * sx)
+        y = int(point[1] * sy)
 
         conf = point[2]
 
@@ -185,6 +187,11 @@ def draw_skeleton(frame, points):
 
             x2,y2,c2 = points[b]
 
+            x1 *= sx
+            y1 *= sy
+
+            x2 *= sx
+            y2 *= sy
 
             if c1 > 0.3 and c2 > 0.3:
 
@@ -324,8 +331,14 @@ def extract_keypoints(output):
 
 
 def calculate_posture(points):
+    for k, v in points.items():
 
-
+        if v[2] < 0.3:
+            return {
+                "neck_forward": False,
+                "back_bent": False,
+                "score": 100
+            }
     score = 100
 
 
@@ -561,6 +574,7 @@ try:
             output_details[0]["index"]
 
         )
+        print(output.shape)
 
 
 
@@ -569,6 +583,7 @@ try:
             output
 
         )
+        print(keypoints)
 
 
 
