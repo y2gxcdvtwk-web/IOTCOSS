@@ -1,7 +1,10 @@
 import cv2
 import mediapipe as mp
+from picamera2 import Picamera2
 
-# MediaPipe Pose 초기화
+# ==========================
+# MediaPipe Pose
+# ==========================
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(
     static_image_mode=False,
@@ -12,28 +15,34 @@ pose = mp_pose.Pose(
 
 mp_draw = mp.solutions.drawing_utils
 
-cap = cv2.VideoCapture(0)
-print(cap.isOpened())
-if not cap.isOpened():
-    print("camera is not opened")
-    exit()
-while cap.isOpened():
-    success, frame = cap.read()
-    print("success=",success)
+# ==========================
+# Picamera2
+# ==========================
+picam2 = Picamera2()
 
-    if not success:
-        break
+config = picam2.create_preview_configuration(
+    main={"size": (640, 480), "format": "RGB888"}
+)
 
-    # 좌우 반전(거울 모드)
-    frame = cv2.flip(frame, 1)
+picam2.configure(config)
+picam2.start()
 
-    # BGR → RGB
+print("카메라 시작")
+
+# ==========================
+# Loop
+# ==========================
+while True:
+    frame = picam2.capture_array()
+
+    # OpenCV 표시용(BGR 변환)
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+    # MediaPipe 입력(RGB)
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    # Pose 추론
     results = pose.process(rgb)
 
-    # 랜드마크가 검출되면 그리기
     if results.pose_landmarks:
         mp_draw.draw_landmarks(
             frame,
@@ -41,10 +50,10 @@ while cap.isOpened():
             mp_pose.POSE_CONNECTIONS
         )
 
-    cv2.imshow("Posture Test", frame)
+    cv2.imshow("Pose Test", frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-cap.release()
 cv2.destroyAllWindows()
+picam2.stop()

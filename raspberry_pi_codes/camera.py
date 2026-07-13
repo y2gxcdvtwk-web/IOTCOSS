@@ -1,6 +1,15 @@
+from picamera2 import Picamera2
 import cv2
 
-cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-print("Opened:", cap.isOpened())
-ret, frame = cap.read()
-print("Read:", ret)
+picam2 = Picamera2()
+picam2.start()
+
+while True:
+    frame = picam2.capture_array()
+    cv2.imshow("Camera", frame)
+
+    if cv2.waitKey(1) == ord('q'):
+        break
+
+cv2.destroyAllWindows()
+picam2.stop()
