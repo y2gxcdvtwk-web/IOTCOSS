@@ -1,3 +1,8 @@
+sudo apt update
+sudo apt install python3-picamera2
+pip install mediapipe opencv-python
+
+from picamera2 import Picamera2
 import cv2
 import mediapipe as mp
 import math
@@ -5,34 +10,62 @@ import time
 import csv
 from datetime import datetime
 
-# ===== Configuration =====
+# ============================
+# Configuration
+# ============================
+
 CAPTURE_INTERVAL = 300      # 5 minutes
 ANGLE_WARNING = 80
 ANGLE_TURTLENECK = 70
 
-# ===== MediaPipe =====
+# ============================
+# MediaPipe
+# ============================
+
 mp_pose = mp.solutions.pose
+
 pose = mp_pose.Pose(
     static_image_mode=True,
+    model_complexity=1,
     min_detection_confidence=0.5
 )
 
-# ===== Camera =====
-cap = cv2.VideoCapture(0)
+# ============================
+# Pi Camera 3
+# ============================
 
-if not cap.isOpened():
-    print("Camera connection failed.")
-    exit()
+picam2 = Picamera2()
 
-# ===== Create CSV =====
-with open("log.csv", "a", newline="") as f:
-    writer = csv.writer(f)
-    writer.writerow(["Time", "Angle", "State"])
+config = picam2.create_still_configuration(
+    main={"size": (1280, 720)}
+)
+
+picam2.configure(config)
+
+picam2.start()
+
+time.sleep(2)
+
+# ============================
+# CSV
+# ============================
+
+try:
+    open("log.csv")
+except:
+    with open("log.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Time", "Angle", "State"])
+
+# ============================
+# Functions
+# ============================
 
 def capture():
-    ret, frame = cap.read()
 
-    if not ret:
+    frame = picam2.capture_array()
+
+    if frame is None:
         return None
 
     return frame
@@ -87,42 +120,69 @@ def save(frame, angle, state):
     cv2.imwrite(filename, frame)
 
     with open("log.csv", "a", newline="") as f:
+
         writer = csv.writer(f)
-        writer.writerow([now, angle, state])
+
+        writer.writerow([now, round(angle,2), state])
 
 
 def output(angle, state):
 
     print("--------------------------------")
     print("Time  :", datetime.now())
-    print("Angle :", round(angle, 2))
+    print("Angle :", round(angle,2))
     print("State :", state)
     print("--------------------------------")
 
-    # TODO: Send result to Arduino
-    # TODO: Control LED
-    # TODO: Control Desk
-    # TODO: Display on LCD
+    # Arduino Serial
+    # serial.write(state.encode())
 
+    # LED
+    # Desk
+    # LCD
+
+
+# ============================
+# Main
+# ============================
 
 print("===== System Started =====")
 
-while True:
+try:
 
-    frame = capture()
+    while True:
 
-    if frame is None:
-        print("Image capture failed.")
-        continue
+        print("Capturing image...")
 
-    angle, state = detect(frame)
+        frame = capture()
 
-    if angle is None:
-        print("No person detected.")
+        if frame is None:
+            print("Capture Failed")
+            time.sleep(1)
+            continue
 
-    else:
-        output(angle, state)
-        save(frame, angle, state)
+        angle, state = detect(frame)
 
-    print("Waiting for next capture (5 minutes)...")
-    time.sleep(CAPTURE_INTERVAL)
+        if angle is None:
+
+            print("No person detected.")
+
+        else:
+
+            output(angle, state)
+
+            save(frame, angle, state)
+
+        print("Waiting 5 minutes...\n")
+
+        time.sleep(CAPTURE_INTERVAL)
+
+except KeyboardInterrupt:
+
+    print("Program terminated.")
+
+finally:
+
+    picam2.stop()
+
+    cv2.destroyAllWindows()
