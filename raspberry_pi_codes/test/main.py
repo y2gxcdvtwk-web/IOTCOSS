@@ -12,7 +12,7 @@ from ultralytics import YOLO
 # =========================
 
 IMAGE_PATH = "temp.jpg"
-LOG_PATH = "posture_log.jsonl"
+LOG_PATH = "data/posture_log.jsonl"
 
 MODEL_PATH = "yolo11n-pose.pt"
 
