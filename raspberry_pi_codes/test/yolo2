@@ -1,0 +1,141 @@
+import cv2
+from picamera2 import Picamera2
+from ultralytics import YOLO
+import time
+
+
+# =========================
+# System Initialize
+# =========================
+def System_Init():
+
+    print("System Initializing...")
+
+    # Camera Init
+    global picam2
+    picam2 = Picamera2()
+
+    config = picam2.create_preview_configuration(
+        main={"size": (640, 480)}
+    )
+
+    picam2.configure(config)
+    picam2.start()
+
+    time.sleep(2)
+
+
+    # YOLO Pose Model Load
+    global model
+    model = YOLO("yolo11n-pose.pt")
+
+
+    print("System Ready")
+
+
+
+# =========================
+# Capture Image
+# =========================
+def Capture_Image():
+
+    frame = picam2.capture_array()
+
+    # RGB -> BGR
+    frame = cv2.cvtColor(
+        frame,
+        cv2.COLOR_RGB2BGR
+    )
+
+    return frame
+
+
+
+# =========================
+# YOLO Pose Processing
+# =========================
+def Pose_Processing(frame):
+
+    results = model(
+        frame,
+        conf=0.3
+    )
+
+    return results
+
+
+
+# =========================
+# Draw Skeleton
+# =========================
+def Draw_Skeleton(frame, results):
+
+    output = results[0].plot()
+
+    return output
+
+
+
+# =========================
+# Main Session
+# =========================
+def Session():
+
+    print("Session Start")
+
+    while True:
+
+        # Camera Capture
+        frame = Capture_Image()
+
+
+        # Pose Detection
+        results = Pose_Processing(frame)
+
+
+        # Draw Skeleton
+        output = Draw_Skeleton(
+            frame,
+            results
+        )
+
+
+        # Display
+        cv2.imshow(
+            "YOLO11 Pose Test",
+            output
+        )
+
+
+        # Keypoint 확인
+        if results[0].keypoints is not None:
+
+            print(
+                results[0].keypoints.xy
+            )
+
+
+        # q 누르면 종료
+        key = cv2.waitKey(1)
+
+        if key == ord('q'):
+            break
+
+
+
+# =========================
+# Main
+# =========================
+def main():
+
+    System_Init()
+
+    Session()
+
+    cv2.destroyAllWindows()
+
+
+
+if __name__ == "__main__":
+
+    main()
