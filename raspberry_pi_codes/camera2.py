@@ -8,11 +8,24 @@ import math
 import time
 import requests
 import base64
+import os
 from datetime import datetime
 
-# ===========================
-# Mobius Setting (Temporary)
-# ===========================
+# ============================================
+# Configuration
+# ============================================
+
+CAPTURE_INTERVAL = 300          # 5 minutes
+IMAGE_WIDTH = 640
+IMAGE_HEIGHT = 480
+
+# Turtle Neck Threshold (Example)
+NORMAL_THRESHOLD = 80
+WARNING_THRESHOLD = 70
+
+# ============================================
+# Mobius (Temporary)
+# ============================================
 
 MOBIUS_URL = "https://onem2m.iotcoss.ac.kr:7579/Mobius/SmartDesk/Camera"
 
@@ -22,26 +35,28 @@ HEADERS = {
     "Accept": "application/json"
 }
 
-CAPTURE_INTERVAL = 300      # 5 minutes
+# ============================================
+# Load YOLO11 Pose
+# ============================================
 
-# ===========================
-# YOLO Model
-# ===========================
+print("Loading YOLO11 Pose Model...")
 
-print("Loading YOLO Model...")
+model = YOLO("yolo11n-pose.pt")
 
-model = YOLO("yolov8n-pose.pt")
+print("YOLO Loaded")
 
-# ===========================
-# Camera
-# ===========================
+# ============================================
+# Camera Initialize
+# ============================================
 
 print("Initializing Camera...")
 
 picam2 = Picamera2()
 
 config = picam2.create_still_configuration(
-    main={"size": (640,480)}
+    main={
+        "size": (IMAGE_WIDTH, IMAGE_HEIGHT)
+    }
 )
 
 picam2.configure(config)
@@ -52,55 +67,159 @@ time.sleep(2)
 
 print("Camera Ready")
 
-# ===========================
-# Turtle Neck Detection
-# ===========================
+# ============================================
+# Save Image
+# ============================================
+
+def save_image(frame):
+
+    filename = datetime.now().strftime("%Y%m%d_%H%M%S.jpg")
+
+    cv2.imwrite(filename, frame)
+
+    return filename
+
+# ============================================
+# Detect Turtle Neck
+# Camera : Right Side
+# ============================================
 
 def detect_turtle_neck(results):
 
-    if len(results[0].keypoints.xy)==0:
-        return None,None
+    if results[0].keypoints is None:
+        return None
+
+    if len(results[0].keypoints.xy) == 0:
+        return None
 
     kp = results[0].keypoints.xy[0]
 
-    leftEar = kp[3]
+    # Right Ear
     rightEar = kp[4]
 
-    leftShoulder = kp[5]
+    # Right Shoulder
     rightShoulder = kp[6]
 
-    earX = (leftEar[0]+rightEar[0])/2
-    earY = (leftEar[1]+rightEar[1])/2
+    x1 = float(rightEar[0])
+    y1 = float(rightEar[1])
 
-    shoulderX = (leftShoulder[0]+rightShoulder[0])/2
-    shoulderY = (leftShoulder[1]+rightShoulder[1])/2
+    x2 = float(rightShoulder[0])
+    y2 = float(rightShoulder[1])
 
-    dx = earX-shoulderX
-    dy = shoulderY-earY
+    dx = x1 - x2
+    dy = y2 - y1
 
-    angle = math.degrees(math.atan2(dy,dx))
+    angle = math.degrees(math.atan2(dy, dx))
 
-    if angle>=80:
-        state="Normal"
+    if angle >= NORMAL_THRESHOLD:
 
-    elif angle>=70:
-        state="Warning"
+        state = "Normal"
+
+    elif angle >= WARNING_THRESHOLD:
+
+        state = "Warning"
 
     else:
-        state="Turtle Neck"
 
-    return float(angle),state
+        state = "Turtle Neck"
 
-# ===========================
-# Send Mobius
-# ===========================
+    return {
 
-def send_to_mobius(filename,angle,state):
+        "angle": round(angle,2),
 
-    with open(filename,"rb") as f:
-        image=base64.b64encode(f.read()).decode()
+        "state": state,
 
-    payload={
+        "ear": (int(x1), int(y1)),
+
+        "shoulder": (int(x2), int(y2))
+
+    }
+
+# ============================================
+# Draw Result
+# ============================================
+
+def draw_result(frame, result):
+
+    ear = result["ear"]
+
+    shoulder = result["shoulder"]
+
+    angle = result["angle"]
+
+    state = result["state"]
+
+    cv2.circle(frame, ear, 8, (0,255,0), -1)
+
+    cv2.circle(frame, shoulder, 8, (0,255,0), -1)
+
+    cv2.line(frame, ear, shoulder, (255,0,0), 2)
+
+    cv2.putText(
+
+        frame,
+
+        state,
+
+        (20,40),
+
+        cv2.FONT_HERSHEY_SIMPLEX,
+
+        1,
+
+        (0,255,0),
+
+        2
+
+    )
+
+    cv2.putText(
+
+        frame,
+
+        "Angle : " + str(angle),
+
+        (20,80),
+
+        cv2.FONT_HERSHEY_SIMPLEX,
+
+        0.8,
+
+        (0,255,255),
+
+        2
+
+    )
+
+    cv2.putText(
+
+        frame,
+
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+
+        (20,120),
+
+        cv2.FONT_HERSHEY_SIMPLEX,
+
+        0.6,
+
+        (255,255,255),
+
+        2
+
+    )
+
+# ============================================
+# Send Image to Mobius
+# ============================================
+
+def send_to_mobius(filename, result):
+
+    with open(filename, "rb") as f:
+
+        image = base64.b64encode(f.read()).decode("utf-8")
+
+    payload = {
 
         "m2m:cin":{
 
@@ -108,9 +227,9 @@ def send_to_mobius(filename,angle,state):
 
                 "time":datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
 
-                "state":state,
+                "state":result["state"],
 
-                "angle":angle,
+                "angle":result["angle"],
 
                 "image":image
 
@@ -122,7 +241,7 @@ def send_to_mobius(filename,angle,state):
 
     try:
 
-        response=requests.post(
+        response = requests.post(
 
             MOBIUS_URL,
 
@@ -134,90 +253,144 @@ def send_to_mobius(filename,angle,state):
 
         )
 
-        print("Mobius :",response.status_code)
+        print("Mobius Status :", response.status_code)
 
     except Exception as e:
 
-        print(e)
+        print("Mobius Error :", e)
 
-# ===========================
+# ============================================
+# Log
+# ============================================
+
+def print_result(result):
+
+    print("------------------------------------")
+
+    print("Time :", datetime.now())
+
+    print("Angle :", result["angle"])
+
+    print("State :", result["state"])
+
+    print("------------------------------------")
+
+# ============================================
 # Main
-# ===========================
+# ============================================
 
-print("==============================")
-print(" Smart Desk Started ")
-print("==============================")
+print("")
+print("========================================")
+print(" Smart Desk System Started ")
+print("========================================")
+print("")
 
-frame_count=0
+capture_count = 0
 
 try:
 
     while True:
 
-        frame=picam2.capture_array()
+        print("Capturing image...")
 
-        filename=datetime.now().strftime("%Y%m%d_%H%M%S.jpg")
+        # Capture Frame
+        frame = picam2.capture_array()
 
-        cv2.imwrite(filename,frame)
+        if frame is None:
 
-        frame_count+=1
+            print("Capture Failed")
 
-        print("--------------------------------")
+            time.sleep(1)
 
-        print("Capture :",frame_count)
+            continue
 
-        results=model(frame)
+        # Save Image
+        filename = save_image(frame)
 
-        angle,state=detect_turtle_neck(results)
+        capture_count += 1
 
-        if angle is None:
+        print("Capture Count :", capture_count)
+
+        # ====================================
+        # YOLO11 Pose
+        # ====================================
+
+        results = model(
+
+            frame,
+
+            classes=0,
+
+            verbose=False
+
+        )
+
+        # ====================================
+        # Turtle Neck Detection
+        # ====================================
+
+        result = detect_turtle_neck(results)
+
+        if result is None:
 
             print("No Person Detected")
 
-            cv2.imshow("Camera",frame)
+            cv2.imshow("Smart Desk", frame)
 
         else:
 
-            print("Angle :",round(angle,2))
+            print_result(result)
 
-            print("State :",state)
+            draw_result(frame, result)
 
-            cv2.putText(
-                frame,
-                state,
-                (20,40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0,255,0),
-                2
+            cv2.imshow("Smart Desk", frame)
+
+            print("Sending Image To Mobius...")
+
+            send_to_mobius(
+
+                filename,
+
+                result
+
             )
 
-            cv2.putText(
-                frame,
-                str(round(angle,2)),
-                (20,80),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0,255,255),
-                2
-            )
+            print("Upload Complete")
 
-            cv2.imshow("Camera",frame)
+        print("")
 
-            send_to_mobius(filename,angle,state)
+        print("Waiting 5 Minutes...")
 
-        print("--------------------------------")
+        print("")
 
-        if cv2.waitKey(1)&0xFF==ord('q'):
+        # q key
+        key = cv2.waitKey(1)
+
+        if key == ord('q'):
+
             break
 
+        # Wait
         time.sleep(CAPTURE_INTERVAL)
 
 except KeyboardInterrupt:
 
-    print("Program End")
+    print("")
+    print("Keyboard Interrupt")
+    print("")
+
+except Exception as e:
+
+    print("")
+    print("Unexpected Error")
+    print(e)
+    print("")
 
 finally:
+
+    print("")
+    print("System Shutdown")
+    print("")
 
     picam2.stop()
 
