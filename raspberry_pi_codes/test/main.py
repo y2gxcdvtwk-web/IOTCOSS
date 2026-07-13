@@ -27,7 +27,7 @@ CAPTURE_INTERVAL = 1.5
 # YOLO TFLite Load
 # =========================
 
-print("[INFO] Loading TFLite model")
+print("[INFO] Loading model...")
 
 interpreter = Interpreter(
     model_path=MODEL_PATH
@@ -39,21 +39,16 @@ interpreter.allocate_tensors()
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
 
-
 input_shape = input_details[0]["shape"]
 
-print(
-    "[INFO] input shape:",
-    input_shape
-)
+print("[INFO] Input shape:", input_shape)
 
 
 # =========================
 # Camera
 # =========================
 
-
-print("[INFO] Starting camera")
+print("[INFO] Starting camera...")
 
 
 cmd = [
@@ -117,11 +112,111 @@ KEYPOINT = {
 
 
 # =========================
+# Skeleton
+# =========================
+
+SKELETON = [
+
+    ("nose","left_shoulder"),
+    ("nose","right_shoulder"),
+
+    ("left_shoulder","right_shoulder"),
+
+    ("left_shoulder","left_elbow"),
+    ("left_elbow","left_wrist"),
+
+    ("right_shoulder","right_elbow"),
+    ("right_elbow","right_wrist"),
+
+    ("left_shoulder","left_hip"),
+    ("right_shoulder","right_hip"),
+
+    ("left_hip","right_hip")
+
+]
+
+
+
+def draw_skeleton(frame, points):
+
+
+    # 관절 점
+
+    for name, point in points.items():
+
+        x = int(point[0])
+        y = int(point[1])
+
+        conf = point[2]
+
+
+        if conf > 0.3:
+
+            cv2.circle(
+                frame,
+                (x,y),
+                5,
+                (0,255,0),
+                -1
+            )
+
+
+            cv2.putText(
+                frame,
+                name,
+                (x+5,y-5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.35,
+                (255,255,255),
+                1
+            )
+
+
+
+    # 연결선
+
+    for a,b in SKELETON:
+
+
+        if a in points and b in points:
+
+
+            x1,y1,c1 = points[a]
+
+            x2,y2,c2 = points[b]
+
+
+            if c1 > 0.3 and c2 > 0.3:
+
+
+                cv2.line(
+
+                    frame,
+
+                    (int(x1),int(y1)),
+
+                    (int(x2),int(y2)),
+
+                    (255,0,0),
+
+                    2
+
+                )
+
+
+    return frame
+
+
+
+
+
+# =========================
 # Preprocess
 # =========================
 
 
 def preprocess(frame):
+
 
     img = cv2.cvtColor(
         frame,
@@ -140,13 +235,14 @@ def preprocess(frame):
     ) / 255.0
 
 
-    # NCHW 모델
+
     if input_shape[1] == 3:
 
         img = np.transpose(
             img,
             (2,0,1)
         )
+
 
 
     img = np.expand_dims(
@@ -162,37 +258,30 @@ def preprocess(frame):
 
 
 # =========================
-# YOLO Output 처리
+# Output -> Keypoint
 # =========================
 
 
 def extract_keypoints(output):
 
-    """
-    YOLO11 pose output
 
-    [1,56,8400]
-
-    """
-
-    points={}
+    points = {}
 
 
-    output = np.squeeze(
-        output
-    )
+    output = np.squeeze(output)
 
 
-    # transpose
+    # (56,8400) -> (8400,56)
+
     output = output.T
 
 
-    # confidence 최대 사람 선택
 
-    confs = output[:,4]
+    confidence = output[:,4]
+
 
     index = np.argmax(
-        confs
+        confidence
     )
 
 
@@ -203,17 +292,23 @@ def extract_keypoints(output):
 
 
     keypoints = keypoints.reshape(
-        17,3
+        17,
+        3
     )
 
 
 
     for name,idx in KEYPOINT.items():
 
-        points[name]=[
+
+        points[name] = [
+
             float(keypoints[idx][0]),
+
             float(keypoints[idx][1]),
+
             float(keypoints[idx][2])
+
         ]
 
 
@@ -231,35 +326,37 @@ def extract_keypoints(output):
 def calculate_posture(points):
 
 
-    score=100
+    score = 100
 
 
-    result={
+    result = {
 
         "neck_forward":False,
 
         "back_bent":False,
 
         "score":100
+
     }
 
 
 
     try:
 
-        nose=points["nose"]
 
-        ls=points["left_shoulder"]
+        nose = points["nose"]
 
-        rs=points["right_shoulder"]
+        ls = points["left_shoulder"]
 
-        lh=points["left_hip"]
+        rs = points["right_shoulder"]
 
-        rh=points["right_hip"]
+        lh = points["left_hip"]
+
+        rh = points["right_hip"]
 
 
 
-        shoulder_x=(
+        shoulder_x = (
 
             ls[0]+rs[0]
 
@@ -267,12 +364,11 @@ def calculate_posture(points):
 
 
 
-        hip_x=(
+        hip_x = (
 
             lh[0]+rh[0]
 
         )/2
-
 
 
 
@@ -285,18 +381,16 @@ def calculate_posture(points):
         )
 
 
+
         if neck_distance > 35:
 
-            result["neck_forward"]=True
+            result["neck_forward"] = True
 
-            score-=25
-
-
+            score -= 25
 
 
 
         # 허리 굽음
-
 
         body_angle = abs(
 
@@ -305,11 +399,12 @@ def calculate_posture(points):
         )
 
 
-        if body_angle >40:
 
-            result["back_bent"]=True
+        if body_angle > 40:
 
-            score-=25
+            result["back_bent"] = True
+
+            score -= 25
 
 
 
@@ -346,18 +441,26 @@ def save_log(data):
 
 
     with open(
+
         LOG_PATH,
+
         "a",
+
         encoding="utf-8"
+
     ) as f:
 
 
         f.write(
 
             json.dumps(
+
                 data,
+
                 ensure_ascii=False
+
             )
+
             + "\n"
 
         )
@@ -367,13 +470,11 @@ def save_log(data):
 
 
 # =========================
-# Main
+# Main Loop
 # =========================
 
 
-print(
-    "[INFO] Start monitoring"
-)
+print("[INFO] Start monitoring")
 
 
 try:
@@ -382,31 +483,39 @@ try:
     while True:
 
 
-        raw = process.stdout.read(
+        raw_frame = process.stdout.read(
             frame_size
         )
 
 
-        if len(raw)!=frame_size:
+        if len(raw_frame)!=frame_size:
+
             break
 
 
 
-        yuv = np.frombuffer(
-            raw,
+        yuv_frame = np.frombuffer(
+
+            raw_frame,
+
             dtype=np.uint8
-        )
 
+        ).reshape(
 
-        yuv = yuv.reshape(
             int(HEIGHT*1.5),
+
             WIDTH
+
         )
 
 
-        frame=cv2.cvtColor(
-            yuv,
+
+        frame = cv2.cvtColor(
+
+            yuv_frame,
+
             cv2.COLOR_YUV2BGR_I420
+
         )
 
 
@@ -414,19 +523,22 @@ try:
         # temp.jpg 저장
 
         cv2.imwrite(
+
             IMAGE_PATH,
+
             frame
+
         )
 
 
 
 
-        # =================
-        # inference
-        # =================
+        # =====================
+        # YOLO inference
+        # =====================
 
 
-        input_data=preprocess(
+        input_data = preprocess(
             frame
         )
 
@@ -444,7 +556,7 @@ try:
 
 
 
-        output=interpreter.get_tensor(
+        output = interpreter.get_tensor(
 
             output_details[0]["index"]
 
@@ -452,54 +564,41 @@ try:
 
 
 
-        keypoints=extract_keypoints(
+        keypoints = extract_keypoints(
+
             output
+
         )
 
 
 
-        posture=calculate_posture(
-            keypoints
-        )
+        posture = calculate_posture(
 
-
-
-
-        log_data={
-
-
-            "time":
-            datetime.now()
-            .isoformat(),
-
-
-            "posture":
-            posture,
-
-
-            "keypoints":
             keypoints
 
-        }
-
-
-
-        save_log(
-            log_data
         )
 
 
-        print(
-            log_data
+
+        # 스켈레톤 출력
+
+        frame = draw_skeleton(
+
+            frame,
+
+            keypoints
+
         )
 
 
+
+        # 점수 출력
 
         cv2.putText(
 
             frame,
 
-            f"Score:{posture['score']}",
+            f"Score : {posture['score']}",
 
             (20,40),
 
@@ -514,37 +613,76 @@ try:
         )
 
 
+
+        log_data = {
+
+
+            "time":
+
+            datetime.now().isoformat(),
+
+
+            "posture":
+
+            posture,
+
+
+            "keypoints":
+
+            keypoints
+
+        }
+
+
+
+        save_log(
+
+            log_data
+
+        )
+
+
+        print(log_data)
+
+
+
         cv2.imshow(
+
             "YOLO11 Pose",
+
             frame
+
         )
 
 
 
-        if cv2.waitKey(1)&0xff==ord('q'):
+        if cv2.waitKey(1)&0xff == ord('q'):
+
             break
 
 
 
         time.sleep(
+
             CAPTURE_INTERVAL
+
         )
+
 
 
 
 except KeyboardInterrupt:
 
-    print(
-        "Stopped"
-    )
+
+    print("\nStopped")
+
 
 
 finally:
+
 
     process.terminate()
 
     cv2.destroyAllWindows()
 
-    print(
-        "Camera closed"
-    )
+    print("Camera closed")
