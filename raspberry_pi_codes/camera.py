@@ -1,17 +1,13 @@
 from picamera2 import Picamera2
 import cv2
 import time
+import os
 
-# ==========================
 # Picamera2 초기화
-# ==========================
 picam2 = Picamera2()
 
-config = picam2.create_preview_configuration(
-    main={
-        "size": (640, 480),
-        # "format": "RGB888"
-    }
+config = picam2.create_still_configuration(
+    main={"size": (640, 480)}
 )
 
 picam2.configure(config)
@@ -19,18 +15,25 @@ picam2.configure(config)
 print("camera start...")
 picam2.start()
 
-# 카메라 안정화
 time.sleep(2)
 
 frame_count = 0
 
 try:
     while True:
+        filename = "temp.jpg"
+
         print("before capture")
 
-        frame = picam2.capture_array()
+        picam2.capture_file(filename)
 
         print("after capture")
+
+        frame = cv2.imread(filename)
+
+        if frame is None:
+            print("read faile")
+            continue
 
         frame_count += 1
 
@@ -44,15 +47,11 @@ try:
             2
         )
 
-        cv2.imshow("Picamera2 Test", frame)
+        cv2.imshow("Picamera2 File Test", frame)
 
-        print(f"Displayed Frame {frame_count}")
-
-        # q를 누르면 종료
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-        # 1초 대기
         time.sleep(1)
 
 except KeyboardInterrupt:
@@ -61,3 +60,6 @@ except KeyboardInterrupt:
 finally:
     picam2.stop()
     cv2.destroyAllWindows()
+
+    if os.path.exists("temp.jpg"):
+        os.remove("temp.jpg")
