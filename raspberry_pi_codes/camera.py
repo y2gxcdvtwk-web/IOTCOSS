@@ -16,7 +16,7 @@ config = picam2.create_preview_configuration(
 
 picam2.configure(config)
 
-print("카메라 시작...")
+print("camera start...")
 picam2.start()
 
 # 카메라 안정화
@@ -27,8 +27,9 @@ frame_count = 0
 try:
     while True:
         # 프레임 획득
+        print("before capture")
         frame = picam2.capture_array()
-
+        print("after capture")
         frame_count += 1
 
         # 30프레임마다 출력
@@ -58,7 +59,7 @@ try:
             break
 
 except KeyboardInterrupt:
-    print("종료")
+    print("end")
 
 finally:
     picam2.stop()
