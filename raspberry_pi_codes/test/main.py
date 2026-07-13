@@ -1,10 +1,11 @@
 import cv2
 import json
 import time
-from datetime import datetime
+import subprocess
+import numpy as np
 
-from picamera2 import Picamera2
-from ultralytics import YOLO
+from datetime import datetime
+from ai_edge_litert.interpreter import Interpreter
 
 
 # =========================
@@ -14,51 +15,90 @@ from ultralytics import YOLO
 IMAGE_PATH = "temp.jpg"
 LOG_PATH = "data/posture_log.jsonl"
 
-MODEL_PATH = "yolo11n-pose.pt"
+MODEL_PATH = "yolo11n-pose.tflite"
 
-CAPTURE_INTERVAL = 1.5   # 약 0.6 FPS
+WIDTH = 640
+HEIGHT = 480
+
+CAPTURE_INTERVAL = 1.5
 
 
 # =========================
-# YOLO 모델
+# YOLO TFLite Load
 # =========================
 
-print("[INFO] Loading YOLO Pose model...")
-model = YOLO(MODEL_PATH)
+print("[INFO] Loading TFLite model")
 
-print("[INFO] Model loaded")
+interpreter = Interpreter(
+    model_path=MODEL_PATH
+)
+
+interpreter.allocate_tensors()
+
+
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+
+
+input_shape = input_details[0]["shape"]
+
+print(
+    "[INFO] input shape:",
+    input_shape
+)
 
 
 # =========================
 # Camera
 # =========================
 
-print("[INFO] Starting camera...")
 
-picam2 = Picamera2()
+print("[INFO] Starting camera")
 
-config = picam2.create_still_configuration(
-    main={
-        "size": (640,480),
-        "format": "RGB888"
-    }
+
+cmd = [
+    "rpicam-vid",
+    "-t",
+    "0",
+    "--codec",
+    "yuv420",
+    "--width",
+    str(WIDTH),
+    "--height",
+    str(HEIGHT),
+    "--framerate",
+    "15",
+    "-o",
+    "-"
+]
+
+
+process = subprocess.Popen(
+    cmd,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+    bufsize=10**8
 )
 
-picam2.configure(config)
-
-picam2.start()
 
 time.sleep(2)
+
+
+frame_size = int(
+    WIDTH * HEIGHT * 1.5
+)
+
 
 print("[INFO] Camera ready")
 
 
+
 # =========================
-# Keypoint 정의
-# YOLO COCO 17개
+# Keypoint
 # =========================
 
 KEYPOINT = {
+
     "nose":0,
 
     "left_shoulder":5,
@@ -77,167 +117,103 @@ KEYPOINT = {
 
 
 # =========================
-# 자세 분석 함수
+# Preprocess
 # =========================
 
-def calculate_posture(points):
+
+def preprocess(frame):
+
+    img = cv2.cvtColor(
+        frame,
+        cv2.COLOR_BGR2RGB
+    )
+
+
+    img = cv2.resize(
+        img,
+        (640,640)
+    )
+
+
+    img = img.astype(
+        np.float32
+    ) / 255.0
+
+
+    # NCHW 모델
+    if input_shape[1] == 3:
+
+        img = np.transpose(
+            img,
+            (2,0,1)
+        )
+
+
+    img = np.expand_dims(
+        img,
+        axis=0
+    )
+
+
+    return img
+
+
+
+
+
+# =========================
+# YOLO Output 처리
+# =========================
+
+
+def extract_keypoints(output):
 
     """
-    points:
-    {
-        nose:[x,y,c],
-        shoulder...
-    }
+    YOLO11 pose output
+
+    [1,56,8400]
+
     """
-
-    score = 100
-
-    result = {
-        "neck_forward":False,
-        "back_bent":False,
-        "score":100
-    }
-
-
-    try:
-
-        nose = points["nose"]
-
-        ls = points["left_shoulder"]
-        rs = points["right_shoulder"]
-
-        lh = points["left_hip"]
-        rh = points["right_hip"]
-
-
-        # -------------------------
-        # 어깨 중심
-        # -------------------------
-
-        shoulder_x = (
-            ls[0]+rs[0]
-        )/2
-
-        shoulder_y = (
-            ls[1]+rs[1]
-        )/2
-
-
-        # -------------------------
-        # 거북목 판단
-        #
-        # 얼굴이 어깨보다 앞으로
-        # 나와 있는지
-        # -------------------------
-
-        neck_distance = abs(
-            nose[0]-shoulder_x
-        )
-
-
-        if neck_distance > 35:
-
-            result["neck_forward"] = True
-
-            score -= 25
-
-
-
-        # -------------------------
-        # 허리 굽음 판단
-        #
-        # 어깨-허리 수직 관계
-        # -------------------------
-
-
-        hip_x = (
-            lh[0]+rh[0]
-        )/2
-
-        body_angle = abs(
-            shoulder_x-hip_x
-        )
-
-
-        if body_angle > 40:
-
-            result["back_bent"] = True
-
-            score -= 25
-
-
-
-        if score < 0:
-            score = 0
-
-
-        result["score"] = score
-
-
-    except Exception as e:
-
-        print(
-            "[WARN] posture error:",
-            e
-        )
-
-
-
-    return result
-
-
-
-# =========================
-# JSON 저장
-# =========================
-
-def save_log(data):
-
-    with open(
-        LOG_PATH,
-        "a",
-        encoding="utf-8"
-    ) as f:
-
-        f.write(
-            json.dumps(
-                data,
-                ensure_ascii=False
-            )
-            + "\n"
-        )
-
-
-
-# =========================
-# YOLO 결과 처리
-# =========================
-
-def extract_upper_body(result):
 
     points={}
 
 
-    if result.keypoints is None:
-        return points
+    output = np.squeeze(
+        output
+    )
 
 
-    xy = result.keypoints.xy.cpu().numpy()
+    # transpose
+    output = output.T
 
-    conf = result.keypoints.conf.cpu().numpy()
+
+    # confidence 최대 사람 선택
+
+    confs = output[:,4]
+
+    index = np.argmax(
+        confs
+    )
 
 
-    # 사람 1명 기준
-    xy = xy[0]
-    conf = conf[0]
+    person = output[index]
+
+
+    keypoints = person[5:]
+
+
+    keypoints = keypoints.reshape(
+        17,3
+    )
+
 
 
     for name,idx in KEYPOINT.items():
 
         points[name]=[
-            float(xy[idx][0]),
-            float(xy[idx][1]),
-            float(conf[idx])
+            float(keypoints[idx][0]),
+            float(keypoints[idx][1]),
+            float(keypoints[idx][2])
         ]
 
 
@@ -245,96 +221,261 @@ def extract_upper_body(result):
 
 
 
+
+
 # =========================
-# Main Loop
+# 자세 분석
 # =========================
 
 
-print("[INFO] Start posture monitoring")
+def calculate_posture(points):
+
+
+    score=100
+
+
+    result={
+
+        "neck_forward":False,
+
+        "back_bent":False,
+
+        "score":100
+    }
+
+
+
+    try:
+
+        nose=points["nose"]
+
+        ls=points["left_shoulder"]
+
+        rs=points["right_shoulder"]
+
+        lh=points["left_hip"]
+
+        rh=points["right_hip"]
+
+
+
+        shoulder_x=(
+
+            ls[0]+rs[0]
+
+        )/2
+
+
+
+        hip_x=(
+
+            lh[0]+rh[0]
+
+        )/2
+
+
+
+
+        # 거북목
+
+        neck_distance = abs(
+
+            nose[0]-shoulder_x
+
+        )
+
+
+        if neck_distance > 35:
+
+            result["neck_forward"]=True
+
+            score-=25
+
+
+
+
+
+        # 허리 굽음
+
+
+        body_angle = abs(
+
+            shoulder_x-hip_x
+
+        )
+
+
+        if body_angle >40:
+
+            result["back_bent"]=True
+
+            score-=25
+
+
+
+        score=max(
+            score,
+            0
+        )
+
+
+        result["score"]=score
+
+
+
+    except Exception as e:
+
+        print(
+            "[WARN]",
+            e
+        )
+
+
+    return result
+
+
+
+
+
+# =========================
+# JSON 저장
+# =========================
+
+
+def save_log(data):
+
+
+    with open(
+        LOG_PATH,
+        "a",
+        encoding="utf-8"
+    ) as f:
+
+
+        f.write(
+
+            json.dumps(
+                data,
+                ensure_ascii=False
+            )
+            + "\n"
+
+        )
+
+
+
+
+
+# =========================
+# Main
+# =========================
+
+
+print(
+    "[INFO] Start monitoring"
+)
 
 
 try:
 
+
     while True:
 
 
-        # -------------------------
-        # 촬영
-        # -------------------------
+        raw = process.stdout.read(
+            frame_size
+        )
 
-        frame = picam2.capture_array()
 
+        if len(raw)!=frame_size:
+            break
+
+
+
+        yuv = np.frombuffer(
+            raw,
+            dtype=np.uint8
+        )
+
+
+        yuv = yuv.reshape(
+            int(HEIGHT*1.5),
+            WIDTH
+        )
+
+
+        frame=cv2.cvtColor(
+            yuv,
+            cv2.COLOR_YUV2BGR_I420
+        )
+
+
+
+        # temp.jpg 저장
 
         cv2.imwrite(
             IMAGE_PATH,
-            cv2.cvtColor(
-                frame,
-                cv2.COLOR_RGB2BGR
-            )
+            frame
         )
 
 
-        # -------------------------
-        # YOLO
-        # -------------------------
 
-        results = model(
-            IMAGE_PATH,
-            verbose=False
+
+        # =================
+        # inference
+        # =================
+
+
+        input_data=preprocess(
+            frame
         )
 
 
-        if len(results)==0:
+        interpreter.set_tensor(
 
-            time.sleep(
-                CAPTURE_INTERVAL
-            )
+            input_details[0]["index"],
 
-            continue
+            input_data
 
-
-
-        keypoints = extract_upper_body(
-            results[0]
         )
 
 
-        if len(keypoints)==0:
-
-            print(
-                "No person detected"
-            )
-
-            time.sleep(
-                CAPTURE_INTERVAL
-            )
-
-            continue
+        interpreter.invoke()
 
 
 
-        # -------------------------
-        # 자세 평가
-        # -------------------------
+        output=interpreter.get_tensor(
 
-        posture = calculate_posture(
+            output_details[0]["index"]
+
+        )
+
+
+
+        keypoints=extract_keypoints(
+            output
+        )
+
+
+
+        posture=calculate_posture(
             keypoints
         )
 
 
 
-        # -------------------------
-        # 저장 데이터
-        # -------------------------
 
         log_data={
+
 
             "time":
             datetime.now()
             .isoformat(),
 
+
             "posture":
             posture,
+
 
             "keypoints":
             keypoints
@@ -354,6 +495,37 @@ try:
 
 
 
+        cv2.putText(
+
+            frame,
+
+            f"Score:{posture['score']}",
+
+            (20,40),
+
+            cv2.FONT_HERSHEY_SIMPLEX,
+
+            1,
+
+            (0,255,0),
+
+            2
+
+        )
+
+
+        cv2.imshow(
+            "YOLO11 Pose",
+            frame
+        )
+
+
+
+        if cv2.waitKey(1)&0xff==ord('q'):
+            break
+
+
+
         time.sleep(
             CAPTURE_INTERVAL
         )
@@ -363,14 +535,16 @@ try:
 except KeyboardInterrupt:
 
     print(
-        "\n[INFO] stopped"
+        "Stopped"
     )
 
 
 finally:
 
-    picam2.stop()
+    process.terminate()
+
+    cv2.destroyAllWindows()
 
     print(
-        "[INFO] camera closed"
+        "Camera closed"
     )

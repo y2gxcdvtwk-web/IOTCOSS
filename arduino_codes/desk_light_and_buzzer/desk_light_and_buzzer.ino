@@ -1,7 +1,6 @@
 #define Red_pin 3
 #define Green_pin 5
 #define Blue_pin 6
-#define Button_pin 9
 
 void setup() {//인풋은 나중에, 일단은 아웃풋만 설정
   pinMode(Red_pin,OUTPUT);
