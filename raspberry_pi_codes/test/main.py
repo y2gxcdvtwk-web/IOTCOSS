@@ -64,12 +64,6 @@ KEYPOINT = {
     "left_shoulder":5,
     "right_shoulder":6,
 
-    "left_elbow":7,
-    "right_elbow":8,
-
-    "left_wrist":9,
-    "right_wrist":10,
-
     "left_hip":11,
     "right_hip":12
 }
@@ -83,12 +77,6 @@ SKELETON = [
     ("right_ear","right_shoulder"),
 
     ("left_shoulder","right_shoulder"),
-
-    ("left_shoulder","left_elbow"),
-    ("left_elbow","left_wrist"),
-
-    ("right_shoulder","right_elbow"),
-    ("right_elbow","right_wrist"),
 
     ("left_shoulder","left_hip"),
     ("right_shoulder","right_hip"),

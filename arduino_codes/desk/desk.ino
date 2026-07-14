@@ -9,12 +9,6 @@ SDA=4
 int sit_height=80;
 int stand_height=125;
 bool sit_stand=0;//0=sit,1=stand
-void setup() {
-  //모터 세팅
-  lcd.init();
-  lcd.backlight();
-  pinMode(Button_pin,INPUT);
-}
 void change(int event,int *height){
   switch(event){
     case 0://시작
@@ -26,10 +20,19 @@ void change(int event,int *height){
     break;
     case 1://미세조정 up
     case 2://미세조정 down
+    
     break;
     case 3://일어나거나 앉거나
+    sit_stand=sit_stand?0:1;
     break;
   }
+  height=sit_stand?stand_height:sit_height;
+}
+void setup() {
+  //+모터 세팅
+  lcd.init();
+  lcd.backlight();
+  pinMode(Button_pin,INPUT);
 }
 int *height=sit_stand?stand_height:sit_height;
 void loop() {
