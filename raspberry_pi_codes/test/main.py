@@ -147,33 +147,47 @@ def extract_keypoints(output):
 # Posture
 # =========================
 def calculate_posture(points):
-    score=100
-    result={
-        "neck_forward":False,
-        "back_bent":False,
-        "score":100
+    score = 100
+    result = {
+        "neck_forward": False,
+        "back_bent": False,
+        "score": 100
     }
     try:
-        nose=points["nose"]
-        ls=points["left_shoulder"]
-        rs=points["right_shoulder"]
-        lh=points["left_hip"]
-        rh=points["right_hip"]
-        shoulder_x=(ls[0]+rs[0])/2
-        hip_x=(lh[0]+rh[0])/2
-        # 정규화 -> pixel
-        neck_distance = abs(nose[0]-shoulder_x) * WIDTH
+        nose = points["nose"]
+
+        le = points["left_ear"]
+        re = points["right_ear"]
+
+        ls = points["left_shoulder"]
+        rs = points["right_shoulder"]
+
+        lh = points["left_hip"]
+        rh = points["right_hip"]
+        # 중심 좌표
+        shoulder_x = (ls[0] + rs[0]) / 2
+        hip_x = (lh[0] + rh[0]) / 2
+        ear_x = (le[0] + re[0]) / 2
+        # ==========================
+        # 거북목 판단
+        # ==========================
+        # 귀 중심과 코의 평균을 머리 중심으로 사용
+        head_x = (nose[0] + ear_x) / 2
+        neck_distance = abs(head_x - shoulder_x) * WIDTH
         if neck_distance > 35:
-            result["neck_forward"]=True
+            result["neck_forward"] = True
             score -= 25
-        body_angle = abs(shoulder_x-hip_x) * WIDTH
-        if body_angle > 40:
-            result["back_bent"]=True
+        # ==========================
+        # 허리 굽음 판단
+        # ==========================
+        body_offset = abs(shoulder_x - hip_x) * WIDTH
+        if body_offset > 40:
+            result["back_bent"] = True
             score -= 25
-        score=max(score,0)
-        result["score"]=score
+        score = max(score, 0)
+        result["score"] = score
     except Exception as e:
-        print("Posture error:",e)
+        print("Posture error:", e)
     return result
 # =========================
 # Save JSON
