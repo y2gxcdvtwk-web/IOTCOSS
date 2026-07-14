@@ -58,6 +58,9 @@ print("[INFO] Camera ready")
 KEYPOINT = {
     "nose":0,
 
+    "left_ear":3,
+    "right_ear":4,
+
     "left_shoulder":5,
     "right_shoulder":6,
 
@@ -71,8 +74,13 @@ KEYPOINT = {
     "right_hip":12
 }
 SKELETON = [
-    ("nose","left_shoulder"),
-    ("nose","right_shoulder"),
+    ("left_ear","right_ear"),
+
+    ("left_ear", "nose"),
+    ("right_ear", "nose"),
+
+    ("left_ear","left_shoulder"),
+    ("right_ear","right_shoulder"),
 
     ("left_shoulder","right_shoulder"),
 
@@ -106,17 +114,9 @@ def draw_skeleton(frame, points):
             if c1 > 0.3 and c2 > 0.3:
                 cv2.line(
                     frame,
-                    (
-                        int(x1*WIDTH),
-                        int(y1*HEIGHT)
-                    ),
-                    (
-                        int(x2*WIDTH),
-                        int(y2*HEIGHT)
-                    ),
-                    (255,0,0),
-                    3
-                )
+                    (int(x1*WIDTH), int(y1*HEIGHT)),
+                    (int(x2*WIDTH), int(y2*HEIGHT)),
+                    (255,0,0), 3)
     return frame
 # =========================
 # Preprocess
