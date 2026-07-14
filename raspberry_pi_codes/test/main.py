@@ -96,22 +96,9 @@ def draw_skeleton(frame, points):
         y = int(point[1] * HEIGHT)
         conf = point[2]
         if conf > 0.3:
-            cv2.circle(
-                frame,
-                (x,y),
-                6,
-                (0,255,0),
-                -1
-            )
-            cv2.putText(
-                frame,
-                name,
-                (x+5,y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.4,
-                (255,255,255),
-                1
-            )
+            cv2.circle(frame, (x,y), 6, (0,255,0), -1)
+            cv2.putText(frame, name,
+                        (x+5,y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
     for a,b in SKELETON:
         if a in points and b in points:
             x1,y1,c1 = points[a]
@@ -230,23 +217,12 @@ try:
             frame=draw_skeleton(frame,keypoints)
         else:
             posture={"score":0}
-        cv2.putText(
-            frame,
-            f"Score : {posture['score']}",
-            (20,50),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.2,
-            (0,255,0),
-            3
-        )
-        save_log({
-            "time":
-            datetime.now().isoformat(),
-            "posture":
-            posture,
-            "keypoints":
-            keypoints
-        })
+        cv2.putText(frame, f"Score:{posture['score']}",
+                    (20,50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
+        save_log({"time":datetime.now().isoformat(),
+                  "posture":posture,
+                  "keypoints":keypoints
+                  })
         cv2.imshow("YOLO11 Pose",frame)
         if cv2.waitKey(1)&0xff == ord('q'):
             break
