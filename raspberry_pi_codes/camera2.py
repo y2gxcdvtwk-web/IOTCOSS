@@ -146,30 +146,21 @@ def calculate_posture(points):
 
     try:
 
-        # 눈 + 귀 신뢰도가 높은 쪽 선택
-        right_score = points["right_eye"][2] + points["right_ear"][2]
-        left_score = points["left_eye"][2] + points["left_ear"][2]
+        eye = points["left_eye"]
+        ear = points["left_ear"]
+        shoulder = points["left_shoulder"]
 
-        if right_score > left_score:
-            eye = points["right_eye"]
-            ear = points["right_ear"]
-            shoulder = points["right_shoulder"]
-        else:
-            eye = points["left_eye"]
-            ear = points["left_ear"]
-            shoulder = points["left_shoulder"]
-
-        # Eye → Ear
+        # Ear -> Eye
         v1 = np.array([
             eye[0] - ear[0],
             eye[1] - ear[1]
-        ])
+        ], dtype=np.float32)
 
-        # Ear → Shoulder
+        # Ear -> Shoulder
         v2 = np.array([
             shoulder[0] - ear[0],
             shoulder[1] - ear[1]
-        ])
+        ], dtype=np.float32)
 
         norm1 = np.linalg.norm(v1)
         norm2 = np.linalg.norm(v2)
@@ -177,13 +168,15 @@ def calculate_posture(points):
         if norm1 < 1e-6 or norm2 < 1e-6:
             return result
 
-        cos_theta = np.dot(v1, v2) / (norm1 * norm2)
+        v1 = v1 / norm1
+        v2 = v2 / norm2
+
+        cos_theta = np.dot(v1, v2)
         cos_theta = np.clip(cos_theta, -1.0, 1.0)
 
-        angle = np.degrees(np.arccos(cos_theta))
-        mcra = 180 - angle
+        mcra = np.degrees(np.arccos(cos_theta))
 
-        result["mCRA"] = round(mcra, 1)
+        result["mCRA"] = round(float(mcra), 1)
 
         if mcra < 150:
             score -= 10
