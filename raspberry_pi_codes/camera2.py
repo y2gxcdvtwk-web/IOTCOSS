@@ -56,23 +56,13 @@ print("[INFO] Camera ready")
 # Keypoints
 # =========================
 KEYPOINT = {
-    "left_eye":1,
-    "right_eye":2,
-
-    "left_ear":3,
-    "right_ear":4,
-
-    "left_shoulder":5,
-    "right_shoulder":6
+    "right_eye": 2,
+    "right_ear": 4,
+    "right_shoulder": 6
 }
 SKELETON = [
-    ("left_eye","left_ear"),
-    ("right_eye","right_ear"),
-
-    ("left_ear","left_shoulder"),
-    ("right_ear","right_shoulder"),
-
-    ("left_shoulder","right_shoulder")
+    ("right_eye", "right_ear"),
+    ("right_ear", "right_shoulder")
 ]
 # =========================
 # Draw Skeleton
@@ -84,8 +74,15 @@ def draw_skeleton(frame, points):
         conf = point[2]
         if conf > 0.3:
             cv2.circle(frame, (x,y), 6, (0,255,0), -1)
-            cv2.putText(frame, name,
-                        (x+5,y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
+            cv2.putText(
+                frame,
+                f"{name} ({x}, {y})",
+                (x+5, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (255,255,255),
+                1
+)
     for a,b in SKELETON:
         if a in points and b in points:
             x1,y1,c1 = points[a]
@@ -146,10 +143,14 @@ def calculate_posture(points):
 
     try:
 
-        eye = points["left_eye"]
-        ear = points["left_ear"]
-        shoulder = points["left_shoulder"]
+        eye = points["right_eye"]
+        ear = points["right_ear"]
+        shoulder = points["right_shoulder"]
 
+        print("--------------------------------")
+        print(f"Eye      : {eye}")
+        print(f"Ear      : {ear}")
+        print(f"Shoulder : {shoulder}")
         # Ear -> Eye
         v1 = np.array([
             eye[0] - ear[0],
@@ -175,7 +176,7 @@ def calculate_posture(points):
         cos_theta = np.clip(cos_theta, -1.0, 1.0)
 
         mcra = np.degrees(np.arccos(cos_theta))
-
+        print(f"mCRA = {mcra:.2f}")
         result["mCRA"] = round(float(mcra), 1)
 
         if mcra < 150:
