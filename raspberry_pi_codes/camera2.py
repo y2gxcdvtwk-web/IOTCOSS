@@ -11,9 +11,9 @@ from ai_edge_litert.interpreter import Interpreter
 IMAGE_PATH = "temp.jpg"
 LOG_PATH = "data/posture_log.jsonl"
 MODEL_PATH = "yolo11n-pose.tflite"
-WIDTH = 640
-HEIGHT = 840
-CAPTURE_INTERVAL = 1.5
+WIDTH = 480
+HEIGHT = 640
+CAPTURE_INTERVAL = 0.05
 # =========================
 # YOLO Load
 # =========================
@@ -39,7 +39,7 @@ cmd = [
     "--height",
     str(HEIGHT),
     "--framerate",
-    "15",
+    "30",
     "-o",
     "-"
 ]
