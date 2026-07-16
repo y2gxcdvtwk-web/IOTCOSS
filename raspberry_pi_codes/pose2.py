@@ -1,188 +1,328 @@
-sudo apt update
-sudo apt install python3-picamera2
-pip install mediapipe opencv-python
-
-from picamera2 import Picamera2
 import cv2
-import mediapipe as mp
-import math
+import json
 import time
-import csv
+import subprocess
+import requests
+import numpy as np
 from datetime import datetime
+from ai_edge_litert.interpreter import Interpreter
+# =========================
+# 설정
+# =========================
+IMAGE_PATH = "temp.jpg"
+LOG_PATH = "data/posture_log.jsonl"
+MODEL_PATH = "yolo11n-pose.tflite"
+WIDTH = 640
+HEIGHT = 840
+CAPTURE_INTERVAL = 0.05
+AE_NAME = "ex"
 
-# ============================
-# Configuration
-# ============================
+CONTAINERS = {
+    "angle": "angle",
+    "posture": "posture",
+    "alert": "alert"
+}
+# =========================
+# Mobius CSE
+# =========================
 
-CAPTURE_INTERVAL = 300      # 5 minutes
-ANGLE_WARNING = 80
-ANGLE_TURTLENECK = 70
-
-# ============================
-# MediaPipe
-# ============================
-
-mp_pose = mp.solutions.pose
-
-pose = mp_pose.Pose(
-    static_image_mode=True,
-    model_complexity=1,
-    min_detection_confidence=0.5
+MOBIUS_ROOT = (
+    "https://platform.iotcoss.ac.kr/"
+    "api/proxy/swagger/Mobius"
 )
 
-# ============================
-# Pi Camera 3
-# ============================
-
-picam2 = Picamera2()
-
-config = picam2.create_still_configuration(
-    main={"size": (1280, 720)}
+MOBIUS_HEADERS = {
+    "accept": "*/*",
+    "Content-Type": "application/json;ty=4",
+    "X-M2M-RI": "123",
+    "X-M2M-Origin": "S",
+    "X-API-KEY": "REDACTED_MOBIUS_API_KEY_00000000",
+    "X-AUTH-CUSTOM-LECTURE": "LCT_20260002",
+    "X-AUTH-CUSTOM-CREATOR": "sjuADDHD",
+    "Accept": "application/json"
+}
+# =========================
+# YOLO Load
+# =========================
+print("[INFO] Loading model")
+interpreter = Interpreter(model_path=MODEL_PATH)
+interpreter.allocate_tensors()
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+input_shape = input_details[0]["shape"]
+print("[INFO] Input:",input_shape)
+# =========================
+# Camera
+# =========================
+print("[INFO] Starting camera")
+cmd = [
+    "rpicam-vid",
+    "-t",
+    "0",
+    "--codec",
+    "yuv420",
+    "--width",
+    str(WIDTH),
+    "--height",
+    str(HEIGHT),
+    "--framerate",
+    "30",
+    "-o",
+    "-"
+]
+process = subprocess.Popen(
+    cmd,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+    bufsize=10**8
 )
-
-picam2.configure(config)
-
-picam2.start()
-
 time.sleep(2)
-
-# ============================
-# CSV
-# ============================
-
-try:
-    open("log.csv")
-except:
-    with open("log.csv", "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Time", "Angle", "State"])
-
-# ============================
-# Functions
-# ============================
-
-def capture():
-
-    frame = picam2.capture_array()
-
-    if frame is None:
-        return None
-
+frame_size = int(WIDTH * HEIGHT * 1.5)
+print("[INFO] Camera ready")
+# =========================
+# Keypoints
+# =========================
+KEYPOINT = {
+    "right_eye": 2,
+    "right_ear": 4,
+    "right_shoulder": 6
+}
+SKELETON = [
+    ("right_eye", "right_ear"),
+    ("right_ear", "right_shoulder")
+]
+# =========================
+# Draw Skeleton
+# =========================
+def draw_skeleton(frame, points):
+    for name, point in points.items():
+        x = int(point[0] * WIDTH)
+        y = int(point[1] * HEIGHT)
+        conf = point[2]
+        if conf > 0.3:
+            cv2.circle(frame, (x,y), 6, (0,255,0), -1)
+            cv2.putText(
+                frame,
+                f"{name} ({x}, {y})",
+                (x+5, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (255,255,255),
+                1
+)
+    for a,b in SKELETON:
+        if a in points and b in points:
+            x1,y1,c1 = points[a]
+            x2,y2,c2 = points[b]
+            if c1 > 0.3 and c2 > 0.3:
+                cv2.line(
+                    frame,
+                    (int(x1*WIDTH), int(y1*HEIGHT)),
+                    (int(x2*WIDTH), int(y2*HEIGHT)),
+                    (255,0,0), 3)
     return frame
-
-
-def detect(frame):
-
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    result = pose.process(rgb)
-
-    if not result.pose_landmarks:
-        return None, None
-
-    lm = result.pose_landmarks.landmark
-
-    leftEar = lm[7]
-    rightEar = lm[8]
-
-    leftShoulder = lm[11]
-    rightShoulder = lm[12]
-
-    earX = (leftEar.x + rightEar.x) / 2
-    earY = (leftEar.y + rightEar.y) / 2
-
-    shoulderX = (leftShoulder.x + rightShoulder.x) / 2
-    shoulderY = (leftShoulder.y + rightShoulder.y) / 2
-
-    dx = earX - shoulderX
-    dy = shoulderY - earY
-
-    angle = math.degrees(math.atan2(dy, dx))
-
-    if angle < ANGLE_TURTLENECK:
-        state = "Turtle Neck"
-
-    elif angle < ANGLE_WARNING:
-        state = "Warning"
-
+# =========================
+# Preprocess
+# =========================
+def preprocess(frame):
+    img = cv2.cvtColor(frame,cv2.COLOR_BGR2RGB)
+    img = cv2.resize(img,(640,640))
+    img = img.astype(np.float32) / 255.0
+    if input_shape[1] == 3:
+        img = np.transpose(img,(2,0,1))
+    img = np.expand_dims(img,0)
+    return img
+# =========================
+# Extract Pose
+# =========================
+def extract_keypoints(output):
+    points={}
+    print("OUTPUT SHAPE:",output.shape)
+    output = output[0]
+    if output.shape[0] == 56:
+        output = output.T
+    elif output.shape[1] == 56:
+        pass
     else:
-        state = "Normal"
+        print("Unknown output")
+        return points
+    person_score = output[:,4]
+    index = np.argmax(person_score)
+    person = output[index]
+    kpts = person[5:]
+    kpts = kpts.reshape(17,3)
+    for name,idx in KEYPOINT.items():
+        points[name]=[
+            float(kpts[idx][0]),
+            float(kpts[idx][1]),
+            float(kpts[idx][2])
+        ]
+    return points
+def calculate_posture(points):
 
-    return angle, state
+    result = {
+        "neck_forward": False,
+        "mCRA": 0
+    }
+
+    try:
+
+        eye = points["right_eye"]
+        ear = points["right_ear"]
+        shoulder = points["right_shoulder"]
+
+        print("--------------------------------")
+        print(f"Eye      : {eye}")
+        print(f"Ear      : {ear}")
+        print(f"Shoulder : {shoulder}")
+
+        # Ear -> Eye 벡터
+        v1 = np.array([
+            eye[0] - ear[0],
+            eye[1] - ear[1]
+        ], dtype=np.float32)
+
+        # Ear -> Shoulder 벡터
+        v2 = np.array([
+            shoulder[0] - ear[0],
+            shoulder[1] - ear[1]
+        ], dtype=np.float32)
 
 
-def save(frame, angle, state):
+        norm1 = np.linalg.norm(v1)
+        norm2 = np.linalg.norm(v2)
 
-    now = datetime.now()
-
-    filename = now.strftime("%Y%m%d_%H%M%S.jpg")
-
-    cv2.imwrite(filename, frame)
-
-    with open("log.csv", "a", newline="") as f:
-
-        writer = csv.writer(f)
-
-        writer.writerow([now, round(angle,2), state])
+        if norm1 < 1e-6 or norm2 < 1e-6:
+            return result
 
 
-def output(angle, state):
-
-    print("--------------------------------")
-    print("Time  :", datetime.now())
-    print("Angle :", round(angle,2))
-    print("State :", state)
-    print("--------------------------------")
-
-    # Arduino Serial
-    # serial.write(state.encode())
-
-    # LED
-    # Desk
-    # LCD
+        v1 = v1 / norm1
+        v2 = v2 / norm2
 
 
-# ============================
+        cos_theta = np.dot(v1, v2)
+        cos_theta = np.clip(cos_theta, -1.0, 1.0)
+
+        mcra = np.degrees(np.arccos(cos_theta))
+
+
+        print(f"mCRA = {mcra:.2f}")
+
+
+        result["mCRA"] = round(float(mcra), 1)
+
+
+        # 120도 기준 판단
+        if mcra <= 120:
+            result["neck_forward"] = True
+
+
+    except Exception as e:
+        print("Posture error:", e)
+
+
+    return result
+# =========================
+# Save JSON
+# =========================
+def save_log(data):
+    with open(LOG_PATH,"a",encoding="utf-8") as f:
+        f.write(json.dumps(data,ensure_ascii=False)+"\n")
+
+
+def send_to_mobius(container, data):
+
+    url = f"{MOBIUS_ROOT}/{AE_NAME}/{CONTAINERS[container]}"
+
+    payload = {
+        "m2m:cin": {
+            "con": data
+        }
+    }
+
+    try:
+        response = requests.post(
+            url,
+            headers=MOBIUS_HEADERS,
+            json=payload
+        )
+
+        print("Mobius Status:", response.status_code)
+        print(response.text)
+
+    except Exception as e:
+        print("Mobius Error:", e)
+# =========================
 # Main
-# ============================
-
-print("===== System Started =====")
-
+# =========================
+print("[INFO] Start")
 try:
-
     while True:
-
-        print("Capturing image...")
-
-        frame = capture()
-
-        if frame is None:
-            print("Capture Failed")
-            time.sleep(1)
-            continue
-
-        angle, state = detect(frame)
-
-        if angle is None:
-
-            print("No person detected.")
-
+        raw = process.stdout.read(frame_size)
+        if len(raw)!=frame_size:
+            break
+        yuv=np.frombuffer(raw,dtype=np.uint8).reshape(int(HEIGHT*1.5),WIDTH)
+        frame=cv2.cvtColor(yuv,cv2.COLOR_YUV2BGR_I420)
+        cv2.imwrite(IMAGE_PATH,frame)
+        # inference
+        input_data=preprocess(frame)
+        interpreter.set_tensor(input_details[0]["index"],input_data)
+        interpreter.invoke()
+        output=interpreter.get_tensor(output_details[0]["index"])
+        keypoints=extract_keypoints(output)
+        print(keypoints)
+        if len(keypoints)>0:
+            posture=calculate_posture(keypoints)
+            frame=draw_skeleton(frame,keypoints)
         else:
+            posture = {
+                "neck_forward": False,
+                "mCRA": 0
+            }
+        
+        cv2.putText(
+            frame,
+            f"mCRA:{posture['mCRA']:.1f}",
+            (20,50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (255,255,0),
+            2
+)
+        cv2.putText(
+        frame,
+        f"Neck Forward:{posture['neck_forward']}",
+        (20,90),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        (0,255,0),
+        2
+    )
+        save_log({"time":datetime.now().isoformat(),
+                  "posture":posture,
+                  "keypoints":keypoints
+                  })
+        send_to_mobius(
+            "angle",
+    {
+                "mCRA": posture["mCRA"]
+    }
+)
 
-            output(angle, state)
-
-            save(frame, angle, state)
-
-        print("Waiting 5 minutes...\n")
-
+        send_to_mobius(
+            "posture",
+    {
+            "neck_forward": posture["neck_forward"],
+            "mCRA": posture["mCRA"]
+    }
+)
+        cv2.imshow("YOLO11 Pose",frame)
+        if cv2.waitKey(1)&0xff == ord('q'):
+            break
         time.sleep(CAPTURE_INTERVAL)
-
 except KeyboardInterrupt:
-
-    print("Program terminated.")
-
+    print("Stopped")
 finally:
-
-    picam2.stop()
-
+    process.terminate()
     cv2.destroyAllWindows()
+    print("Camera closed")
