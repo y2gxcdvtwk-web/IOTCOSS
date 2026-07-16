@@ -39,7 +39,7 @@ cmd = [
     "--height",
     str(HEIGHT),
     "--framerate",
-    "30",
+    "60",
     "-o",
     "-"
 ]
