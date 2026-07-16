@@ -133,11 +133,8 @@ def extract_keypoints(output):
     return points
 def calculate_posture(points):
 
-    score = 100
-
     result = {
         "neck_forward": False,
-        "score": 100,
         "mCRA": 0
     }
 
@@ -151,17 +148,19 @@ def calculate_posture(points):
         print(f"Eye      : {eye}")
         print(f"Ear      : {ear}")
         print(f"Shoulder : {shoulder}")
-        # Ear -> Eye
+
+        # Ear -> Eye 벡터
         v1 = np.array([
             eye[0] - ear[0],
             eye[1] - ear[1]
         ], dtype=np.float32)
 
-        # Ear -> Shoulder
+        # Ear -> Shoulder 벡터
         v2 = np.array([
             shoulder[0] - ear[0],
             shoulder[1] - ear[1]
         ], dtype=np.float32)
+
 
         norm1 = np.linalg.norm(v1)
         norm2 = np.linalg.norm(v2)
@@ -169,34 +168,31 @@ def calculate_posture(points):
         if norm1 < 1e-6 or norm2 < 1e-6:
             return result
 
+
         v1 = v1 / norm1
         v2 = v2 / norm2
+
 
         cos_theta = np.dot(v1, v2)
         cos_theta = np.clip(cos_theta, -1.0, 1.0)
 
         mcra = np.degrees(np.arccos(cos_theta))
+
+
         print(f"mCRA = {mcra:.2f}")
+
+
         result["mCRA"] = round(float(mcra), 1)
 
-        if mcra < 150:
-            score -= 10
-        if mcra < 145:
-            score -= 15
-        if mcra < 140:
-            score -= 20
-        if mcra < 135:
-            score -= 30
 
-        score = max(score, 0)
-
-        result["score"] = score
-
-        if mcra < 145:
+        # 120도 기준 판단
+        if mcra <= 120:
             result["neck_forward"] = True
+
 
     except Exception as e:
         print("Posture error:", e)
+
 
     return result
 # =========================
@@ -229,20 +225,28 @@ try:
             frame=draw_skeleton(frame,keypoints)
         else:
             posture = {
-                "score": 0,
+                "neck_forward": False,
                 "mCRA": 0
             }
-        cv2.putText(frame, f"Score:{posture['score']}",
-                    (20,50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
+        
         cv2.putText(
             frame,
             f"mCRA:{posture['mCRA']:.1f}",
-            (20,100),
+            (20,50),
             cv2.FONT_HERSHEY_SIMPLEX,
             1,
             (255,255,0),
             2
 )
+        cv2.putText(
+        frame,
+        f"Neck Forward:{posture['neck_forward']}",
+        (20,90),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        (0,255,0),
+        2
+    )
         save_log({"time":datetime.now().isoformat(),
                   "posture":posture,
                   "keypoints":keypoints
