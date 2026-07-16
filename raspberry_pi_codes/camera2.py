@@ -56,32 +56,23 @@ print("[INFO] Camera ready")
 # Keypoints
 # =========================
 KEYPOINT = {
-    "nose":0,
+    "left_eye":1,
+    "right_eye":2,
 
     "left_ear":3,
     "right_ear":4,
 
     "left_shoulder":5,
-    "right_shoulder":6,
-
-    "left_hip":11,
-    "right_hip":12
+    "right_shoulder":6
 }
 SKELETON = [
-    ("left_ear","right_ear"),
-
-    ("left_ear", "nose"),
-    ("right_ear", "nose"),
+    ("left_eye","left_ear"),
+    ("right_eye","right_ear"),
 
     ("left_ear","left_shoulder"),
     ("right_ear","right_shoulder"),
 
-    ("left_shoulder","right_shoulder"),
-
-    ("left_shoulder","left_hip"),
-    ("right_shoulder","right_hip"),
-
-    ("left_hip","right_hip")
+    ("left_shoulder","right_shoulder")
 ]
 # =========================
 # Draw Skeleton
@@ -149,70 +140,65 @@ def calculate_posture(points):
 
     result = {
         "neck_forward": False,
-        "back_bent": False,
         "score": 100,
-        "SA": 0
+        "mCRA": 0
     }
 
     try:
 
-        # 귀와 어깨 선택
-        if points["right_ear"][2] > points["left_ear"][2]:
+        # 눈 + 귀 신뢰도가 높은 쪽 선택
+        right_score = points["right_eye"][2] + points["right_ear"][2]
+        left_score = points["left_eye"][2] + points["left_ear"][2]
+
+        if right_score > left_score:
+            eye = points["right_eye"]
             ear = points["right_ear"]
             shoulder = points["right_shoulder"]
         else:
+            eye = points["left_eye"]
             ear = points["left_ear"]
             shoulder = points["left_shoulder"]
 
-        # 골반 중심
-        hip = [
-            (points["left_hip"][0] + points["right_hip"][0]) / 2,
-            (points["left_hip"][1] + points["right_hip"][1]) / 2
-        ]
-
-        # 벡터 생성
+        # Eye → Ear
         v1 = np.array([
-            ear[0] - shoulder[0],
-            ear[1] - shoulder[1]
+            eye[0] - ear[0],
+            eye[1] - ear[1]
         ])
 
+        # Ear → Shoulder
         v2 = np.array([
-            hip[0] - shoulder[0],
-            hip[1] - shoulder[1]
+            shoulder[0] - ear[0],
+            shoulder[1] - ear[1]
         ])
 
-        # 각도 계산
-        cos_theta = np.dot(v1, v2) / (
-            np.linalg.norm(v1) * np.linalg.norm(v2)
-        )
+        norm1 = np.linalg.norm(v1)
+        norm2 = np.linalg.norm(v2)
 
+        if norm1 < 1e-6 or norm2 < 1e-6:
+            return result
+
+        cos_theta = np.dot(v1, v2) / (norm1 * norm2)
         cos_theta = np.clip(cos_theta, -1.0, 1.0)
 
         angle = np.degrees(np.arccos(cos_theta))
+        mcra = 180 - angle
 
-        # Shoulder Angle
-        sa = angle - 90
+        result["mCRA"] = round(mcra, 1)
 
-        result["SA"] = round(sa, 1)
-
-        # 점수 계산
-        if sa > 10:
+        if mcra < 150:
             score -= 10
-
-        if sa > 15:
+        if mcra < 145:
             score -= 15
-
-        if sa > 20:
+        if mcra < 140:
             score -= 20
-
-        if sa > 25:
+        if mcra < 135:
             score -= 30
 
         score = max(score, 0)
 
         result["score"] = score
 
-        if sa > 15:
+        if mcra < 145:
             result["neck_forward"] = True
 
     except Exception as e:
@@ -250,18 +236,18 @@ try:
         else:
             posture = {
                 "score": 0,
-                "SA": 0
-    }
+                "mCRA": 0
+            }
         cv2.putText(frame, f"Score:{posture['score']}",
                     (20,50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
         cv2.putText(
-    frame,
-    f"SA:{posture['SA']:.1f}",
-    (20,100),
-    cv2.FONT_HERSHEY_SIMPLEX,
-    1,
-    (255,255,0),
-    2
+            frame,
+            f"mCRA:{posture['mCRA']:.1f}",
+            (20,100),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (255,255,0),
+            2
 )
         save_log({"time":datetime.now().isoformat(),
                   "posture":posture,
