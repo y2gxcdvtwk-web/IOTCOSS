@@ -2,6 +2,7 @@ import cv2
 import json
 import time
 import subprocess
+import requests
 import numpy as np
 from datetime import datetime
 from ai_edge_litert.interpreter import Interpreter
@@ -13,7 +14,33 @@ LOG_PATH = "data/posture_log.jsonl"
 MODEL_PATH = "yolo11n-pose.tflite"
 WIDTH = 640
 HEIGHT = 840
-CAPTURE_INTERVAL = 1.5
+CAPTURE_INTERVAL = 0.05
+AE_NAME = "ex"
+
+CONTAINERS = {
+    "angle": "angle",
+    "posture": "posture",
+    "alert": "alert"
+}
+# =========================
+# Mobius CSE
+# =========================
+
+MOBIUS_ROOT = (
+    "https://platform.iotcoss.ac.kr/"
+    "api/proxy/swagger/Mobius"
+)
+
+MOBIUS_HEADERS = {
+    "accept": "*/*",
+    "Content-Type": "application/json;ty=4",
+    "X-M2M-RI": "123",
+    "X-M2M-Origin": "S",
+    "X-API-KEY": "REDACTED_MOBIUS_API_KEY_00000000",
+    "X-AUTH-CUSTOM-LECTURE": "LCT_20260002",
+    "X-AUTH-CUSTOM-CREATOR": "sjuADDHD",
+    "Accept": "application/json"
+}
 # =========================
 # YOLO Load
 # =========================
@@ -39,7 +66,7 @@ cmd = [
     "--height",
     str(HEIGHT),
     "--framerate",
-    "15",
+    "30",
     "-o",
     "-"
 ]
@@ -56,32 +83,13 @@ print("[INFO] Camera ready")
 # Keypoints
 # =========================
 KEYPOINT = {
-    "nose":0,
-
-    "left_ear":3,
-    "right_ear":4,
-
-    "left_shoulder":5,
-    "right_shoulder":6,
-
-    "left_hip":11,
-    "right_hip":12
+    "right_eye": 2,
+    "right_ear": 4,
+    "right_shoulder": 6
 }
 SKELETON = [
-    ("left_ear","right_ear"),
-
-    ("left_ear", "nose"),
-    ("right_ear", "nose"),
-
-    ("left_ear","left_shoulder"),
-    ("right_ear","right_shoulder"),
-
-    ("left_shoulder","right_shoulder"),
-
-    ("left_shoulder","left_hip"),
-    ("right_shoulder","right_hip"),
-
-    ("left_hip","right_hip")
+    ("right_eye", "right_ear"),
+    ("right_ear", "right_shoulder")
 ]
 # =========================
 # Draw Skeleton
@@ -93,8 +101,15 @@ def draw_skeleton(frame, points):
         conf = point[2]
         if conf > 0.3:
             cv2.circle(frame, (x,y), 6, (0,255,0), -1)
-            cv2.putText(frame, name,
-                        (x+5,y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
+            cv2.putText(
+                frame,
+                f"{name} ({x}, {y})",
+                (x+5, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (255,255,255),
+                1
+)
     for a,b in SKELETON:
         if a in points and b in points:
             x1,y1,c1 = points[a]
@@ -143,51 +158,69 @@ def extract_keypoints(output):
             float(kpts[idx][2])
         ]
     return points
-# =========================
-# Posture
-# =========================
 def calculate_posture(points):
-    score = 100
+
     result = {
         "neck_forward": False,
-        "back_bent": False,
-        "score": 100
+        "mCRA": 0
     }
+
     try:
-        nose = points["nose"]
 
-        le = points["left_ear"]
-        re = points["right_ear"]
+        eye = points["right_eye"]
+        ear = points["right_ear"]
+        shoulder = points["right_shoulder"]
 
-        ls = points["left_shoulder"]
-        rs = points["right_shoulder"]
+        print("--------------------------------")
+        print(f"Eye      : {eye}")
+        print(f"Ear      : {ear}")
+        print(f"Shoulder : {shoulder}")
 
-        lh = points["left_hip"]
-        rh = points["right_hip"]
-        # 중심 좌표
-        shoulder_x = (ls[0] + rs[0]) / 2
-        hip_x = (lh[0] + rh[0]) / 2
-        ear_x = (le[0] + re[0]) / 2
-        # ==========================
-        # 거북목 판단
-        # ==========================
-        # 귀 중심과 코의 평균을 머리 중심으로 사용
-        head_x = (nose[0] + ear_x) / 2
-        neck_distance = abs(head_x - shoulder_x) * WIDTH
-        if neck_distance > 35:
+        # Ear -> Eye 벡터
+        v1 = np.array([
+            eye[0] - ear[0],
+            eye[1] - ear[1]
+        ], dtype=np.float32)
+
+        # Ear -> Shoulder 벡터
+        v2 = np.array([
+            shoulder[0] - ear[0],
+            shoulder[1] - ear[1]
+        ], dtype=np.float32)
+
+
+        norm1 = np.linalg.norm(v1)
+        norm2 = np.linalg.norm(v2)
+
+        if norm1 < 1e-6 or norm2 < 1e-6:
+            return result
+
+
+        v1 = v1 / norm1
+        v2 = v2 / norm2
+
+
+        cos_theta = np.dot(v1, v2)
+        cos_theta = np.clip(cos_theta, -1.0, 1.0)
+
+        mcra = np.degrees(np.arccos(cos_theta))
+
+
+        print(f"mCRA = {mcra:.2f}")
+
+
+        result["mCRA"] = round(float(mcra), 1)
+
+
+        # 120도 기준 판단
+        if mcra <= 120:
             result["neck_forward"] = True
-            score -= 25
-        # ==========================
-        # 허리 굽음 판단
-        # ==========================
-        body_offset = abs(shoulder_x - hip_x) * WIDTH
-        if body_offset > 40:
-            result["back_bent"] = True
-            score -= 25
-        score = max(score, 0)
-        result["score"] = score
+
+
     except Exception as e:
         print("Posture error:", e)
+
+
     return result
 # =========================
 # Save JSON
@@ -195,6 +228,30 @@ def calculate_posture(points):
 def save_log(data):
     with open(LOG_PATH,"a",encoding="utf-8") as f:
         f.write(json.dumps(data,ensure_ascii=False)+"\n")
+
+
+def send_to_mobius(container, data):
+
+    url = f"{MOBIUS_ROOT}/{AE_NAME}/{CONTAINERS[container]}"
+
+    payload = {
+        "m2m:cin": {
+            "con": data
+        }
+    }
+
+    try:
+        response = requests.post(
+            url,
+            headers=MOBIUS_HEADERS,
+            json=payload
+        )
+
+        print("Mobius Status:", response.status_code)
+        print(response.text)
+
+    except Exception as e:
+        print("Mobius Error:", e)
 # =========================
 # Main
 # =========================
@@ -218,13 +275,47 @@ try:
             posture=calculate_posture(keypoints)
             frame=draw_skeleton(frame,keypoints)
         else:
-            posture={"score":0}
-        cv2.putText(frame, f"Score:{posture['score']}",
-                    (20,50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
+            posture = {
+                "neck_forward": False,
+                "mCRA": 0
+            }
+        
+        cv2.putText(
+            frame,
+            f"mCRA:{posture['mCRA']:.1f}",
+            (20,50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (255,255,0),
+            2
+)
+        cv2.putText(
+        frame,
+        f"Neck Forward:{posture['neck_forward']}",
+        (20,90),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        (0,255,0),
+        2
+    )
         save_log({"time":datetime.now().isoformat(),
                   "posture":posture,
                   "keypoints":keypoints
                   })
+        send_to_mobius(
+            "angle",
+    {
+                "mCRA": posture["mCRA"]
+    }
+)
+
+        send_to_mobius(
+            "posture",
+    {
+            "neck_forward": posture["neck_forward"],
+            "mCRA": posture["mCRA"]
+    }
+)
         cv2.imshow("YOLO11 Pose",frame)
         if cv2.waitKey(1)&0xff == ord('q'):
             break
