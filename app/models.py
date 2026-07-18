@@ -56,3 +56,11 @@ class MobiusIngest(BaseModel):
     content: Any
     resource_name: str | None = None
 
+
+class DeviceCommand(BaseModel):
+    content: dict[str, Any]
+
+
+class DeviceCommand(BaseModel):
+    content: dict[str, Any]
+

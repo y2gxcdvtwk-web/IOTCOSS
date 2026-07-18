@@ -16,14 +16,14 @@ class Settings(BaseSettings):
 
     mobius_base_url: str = "https://platform.iotcoss.ac.kr/api/proxy/swagger/Mobius"
     mobius_origin: str = "S"
-    mobius_ae_name: str = "ex"
     mobius_ae_id: str = ""
-    mobius_data_container: str = "posture"
     mobius_timeout_seconds: float = 10
     mobius_auto_register: bool = True
     mobius_api_key: str = ""
     mobius_lecture: str = ""
     mobius_creator: str = ""
+    mobius_notification_uri: str = ""
+    mobius_subscription_name: str = "subToAnalyticsServer"
 
     ai_provider: str = "local"
     ai_model: str = "gpt-4.1-mini"
