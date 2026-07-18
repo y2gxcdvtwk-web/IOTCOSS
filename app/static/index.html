@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mobius AI</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main>
+  <header><span class="eyebrow">MOBIUS AE</span><h1>집중 기록</h1><p id="status">새 세션을 시작하세요.</p></header>
+  <section class="card">
+    <label>사용자 ID<input id="userId" value="demo-user"></label>
+    <button id="start">세션 시작</button>
+  </section>
+  <section class="card hidden" id="workspace">
+    <label>지금 기록<textarea id="content" placeholder="생각, 할 일, 센서 기록을 입력하세요"></textarea></label>
+    <div class="actions"><button id="save">기록 저장</button><button id="analyze" class="secondary">AI 분석</button></div>
+    <div id="result"></div>
+    <h2>타임라인</h2><ul id="events"></ul>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body></html>
+

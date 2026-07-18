@@ -1,55 +1,50 @@
 # IOTCOSS
-아두이노+라즈베리파이4
-USB Camera
-      │
-      ▼
-영상 입력(OpenCV)
-      │
-      ▼
-MediaPipe
- └── Pose (33 landmarks)
-      │
-      ▼
-특징(feature) 추출
- ├── 얼굴 방향
- ├── 머리 기울기
- ├── 목 각도   ###
- ├── 어깨 위치
- └── 몸 기울기 ###
-      │
-      ▼
-자세 점수 계산
-      │
-      ▼
-Robot 피드백
-(+ 중간중간 스트레칭 시키고 
-좀 오래 앉아있었으면 잠깐동안 일어서서 하고)
 
+아두이노, Raspberry Pi 4, USB 카메라와 Mobius oneM2M을 연결해 자세를 분석하고
+스마트 데스크 피드백을 제공하는 프로젝트입니다.
 
-목 각도 측정의 경우 연직 위 방향과 목의 방향의 차이로 구현
+## 시스템 구성
 
-라즈베리파이 계획:
-가지고 있는 사람이 테스트,
-일단? 세션 시작, 종료-> 버튼 적용 필요
-시작->카메라(openCV), 시작 출력, 시간 측정
-근데? cse로 보낼때, 뭘 보내야 하냐?
-실시간으로 영상을 보내야 하는데? 어떻게 보내지?
-일정 시간당 사진 찍어서 데이터 보내고 해야하는데
-cse가 좀 느림-> 실시간이 어려운데->로컬에서 좀 거르고 보내야 하는데
- 결국 뭘 보내냐?-> 정상 or 거북목 or 졸음->로컬에서 판단해야 함
-로컬->판단->cse로 보냄-> 데이터 쌓임-> 정리필요
-일단 목 각도 기준은 나중에 결정(아직은 모름)
+1. Raspberry Pi가 카메라 영상에서 자세 특징을 추출합니다.
+2. 로컬에서 정상 자세, 거북목 등의 상태를 판정합니다.
+3. 판정 결과를 Mobius CSE에 `m2m:cin`으로 저장합니다.
+4. FastAPI 게이트웨이가 세션과 이벤트를 관리하고 AI 분석 결과를 앱에 전달합니다.
+5. Arduino가 전달받은 상태에 따라 데스크, 조명, 부저를 제어합니다.
 
-초기값 정해서 그걸 기준으로? 좋긴 하네
-계산력이 너무 약한데
-일단 졸음 쪽은 지금은 보류
+## FastAPI Mobius AI Gateway
 
-지금 필요한거--> 계산력 정보
-cse로 데이터 보내기
+### 실행
 
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+Copy-Item .env.example .env
+uvicorn app.main:app --reload
+```
 
-라즈베리파이가 판단 후 데스크, 라이트가 얼마나 변할지 보내고, 5분 뒤에 피드백 받고 좀 더 바꾼다던가하고
-근데? 라즈베리파이가 한 장으로 어떻게 판단하냐?-> 초기값 찍고 얼마나 변했냐?
+- UI: http://localhost:8000
+- OpenAPI: http://localhost:8000/docs
+- 상태 확인: http://localhost:8000/health
 
+Mobius 설정과 인증정보는 `.env`에서 관리합니다. 저장소에 API 키를 커밋하지 마세요.
+앱 이벤트 요청의 `sync_to_mobius`가 `true`이면 Mobius의 `m2m:cin`으로 동기화됩니다.
 
-mediapipe는 버리고 YOLO 
+AI는 기본적으로 외부 서비스 없이 로컬 분석을 사용합니다. OpenAI 연동 시
+`AI_PROVIDER=openai`와 `OPENAI_API_KEY`를 설정합니다.
+
+### 앱 API
+
+- `POST /api/v1/sessions`: 세션 생성
+- `GET/DELETE /api/v1/sessions/{id}`: 세션 조회/종료
+- `POST/GET /api/v1/sessions/{id}/events`: 이벤트 저장/조회
+- `POST /api/v1/sessions/{id}/analysis`: 세션 AI 분석
+- `WS /api/v1/ws/sessions/{id}`: 실시간 이벤트
+- `POST /api/v1/mobius/ingest`: Mobius 알림 수신
+
+## 디렉터리
+
+- `app/`: FastAPI 서버, Mobius 어댑터, 세션/AI 분석, 웹 UI
+- `raspberry_pi_codes/`: 카메라 및 자세 분석 코드
+- `arduino_codes/`: 데스크와 피드백 장치 코드
+- `tests/`: FastAPI 통합 테스트

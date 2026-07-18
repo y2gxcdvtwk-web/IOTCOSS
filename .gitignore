@@ -1,3 +1,10 @@
-.vs/IOTCOSS.slnx/FileContentIndex/b1935b84-66df-4263-981b-d213cc354a47.vsidx
-.vs/IOTCOSS.slnx/FileContentIndex/c9033248-2f25-46a3-8bb0-664499521052.vsidx
-*.vsidx
+.vs/
+.idea/
+cmake-build-*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+data/
+*.egg-info/
