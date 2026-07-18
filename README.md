@@ -7,8 +7,8 @@
 
 1. Raspberry Pi가 카메라 영상에서 자세 특징을 추출합니다.
 2. 로컬에서 정상 자세, 거북목 등의 상태를 판정합니다.
-3. 판정 결과를 Mobius CSE에 `m2m:cin`으로 저장합니다.
-4. FastAPI 게이트웨이가 세션과 이벤트를 관리하고 AI 분석 결과를 앱에 전달합니다.
+3. 판정 결과를 `postureCamera` AE에 `m2m:cin`으로 저장합니다.
+4. `analyticsServer` FastAPI가 SUB 알림, 세션, AI 분석과 앱 API를 담당합니다.
 5. Arduino가 전달받은 상태에 따라 데스크, 조명, 부저를 제어합니다.
 
 ## FastAPI Mobius AI Gateway
@@ -27,8 +27,22 @@ uvicorn app.main:app --reload
 - OpenAPI: http://localhost:8000/docs
 - 상태 확인: http://localhost:8000/health
 
-Mobius 설정과 인증정보는 `.env`에서 관리합니다. 저장소에 API 키를 커밋하지 마세요.
-앱 이벤트 요청의 `sync_to_mobius`가 `true`이면 Mobius의 `m2m:cin`으로 동기화됩니다.
+Mobius 설정과 인증정보는 `.env`에서 관리합니다. `MOBIUS_NOTIFICATION_URI`에는
+Mobius가 접근할 수 있는 `/api/v1/mobius/notifications` 공개 주소를 설정합니다.
+
+### 확정 Mobius 구조
+
+- `postureCamera`: `command`, `status`, `postureSamples`, `postureEvents`
+- `deskInterface`: `lcdCommand`, `buttonEvents`, `status`
+- `deskMotor`: `command`, `status`, `motorEvents`
+- `postureLight`: `command`, `status`, `lightEvents`
+- `analyticsServer`: `status`, `sessionEvents`, `currentSession`, `suggestions`, `sessionSummaries`
+
+서버 시작 시 `MOBIUS_AUTO_REGISTER=true`이면 자신이 소유하는 `analyticsServer`
+AE/CNT만 확인하고 누락된 리소스를 생성합니다. 장치 AE/CNT는 존재 여부만 확인하며
+생성하거나 변경하지 않습니다. `MOBIUS_NOTIFICATION_URI`가 설정된 경우 장치의
+`status`와 이벤트/샘플 컨테이너에 `subToAnalyticsServer` 구독을 확인하고 생성합니다.
+command 계열은 장치가 `/latest`를 polling하므로 구독을 만들지 않습니다.
 
 AI는 기본적으로 외부 서비스 없이 로컬 분석을 사용합니다. OpenAI 연동 시
 `AI_PROVIDER=openai`와 `OPENAI_API_KEY`를 설정합니다.
@@ -41,6 +55,11 @@ AI는 기본적으로 외부 서비스 없이 로컬 분석을 사용합니다. 
 - `POST /api/v1/sessions/{id}/analysis`: 세션 AI 분석
 - `WS /api/v1/ws/sessions/{id}`: 실시간 이벤트
 - `POST /api/v1/mobius/ingest`: Mobius 알림 수신
+- `POST /api/v1/mobius/notifications`: oneM2M SUB 알림 수신
+- `POST /api/v1/devices/{device}/commands`: 장치 명령 CIN 생성
+
+명령 API의 `{device}`는 `posture-camera`, `desk-interface`, `desk-motor`,
+`posture-light` 중 하나입니다.
 
 ## 디렉터리
 

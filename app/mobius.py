@@ -4,6 +4,7 @@ from uuid import uuid4
 import httpx
 
 from app.config import Settings
+from app.topology import MOBIUS_TOPOLOGY, SUBSCRIPTION_SOURCES
 
 
 class MobiusError(RuntimeError):
@@ -11,7 +12,7 @@ class MobiusError(RuntimeError):
 
 
 class MobiusClient:
-    """Minimal Mobius/oneM2M HTTP binding for AE, CNT, and CIN resources."""
+    """oneM2M HTTP binding for the fixed IOTCOSS AE topology."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -41,46 +42,95 @@ class MobiusClient:
 
     async def health(self) -> bool:
         try:
-            response = await self.client.get("", headers=self._headers())
+            response = await self.client.get("/analyticsServer", headers=self._headers())
             return response.status_code < 500
         except httpx.HTTPError:
             return False
 
+    async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        try:
+            return await self.client.request(method, path, **kwargs)
+        except httpx.HTTPError as exc:
+            raise MobiusError(f"Mobius connection failed: {exc}") from exc
+
     async def ensure_structure(self) -> None:
-        ae_path = f"/{self.settings.mobius_ae_name}"
-        ae = await self.client.get(ae_path, headers=self._headers())
-        if ae.status_code == 404:
-            created = await self.client.post(
+        analytics = "analyticsServer"
+        await self._ensure_ae(analytics)
+        for container in MOBIUS_TOPOLOGY[analytics].containers:
+            await self._ensure_container(analytics, container)
+        if self.settings.mobius_notification_uri:
+            for ae_name, container in SUBSCRIPTION_SOURCES:
+                await self._require_container(ae_name, container)
+                await self._ensure_subscription(ae_name, container)
+
+    async def _ensure_ae(self, ae_name: str) -> None:
+        response = await self._request("GET", f"/{ae_name}", headers=self._headers())
+        if response.status_code == 404:
+            response = await self._request(
+                "POST",
                 "", headers=self._headers(2),
-                json={"m2m:ae": {"rn": self.settings.mobius_ae_name, "api": "N.addhd.app", "rr": True}},
+                json={"m2m:ae": {"rn": ae_name, "api": f"N.IOTCOSS.{ae_name}", "rr": True}},
             )
-            self._raise(created, "AE registration")
-        elif ae.status_code >= 400:
-            self._raise(ae, "AE retrieval")
+        self._raise(response, f"AE {ae_name}")
 
-        container_path = f"{ae_path}/{self.settings.mobius_data_container}"
-        container = await self.client.get(container_path, headers=self._headers())
-        if container.status_code == 404:
-            created = await self.client.post(
-                ae_path, headers=self._headers(3),
-                json={"m2m:cnt": {"rn": self.settings.mobius_data_container}},
+    async def _ensure_container(self, ae_name: str, container: str) -> None:
+        path = f"/{ae_name}/{container}"
+        response = await self._request("GET", path, headers=self._headers())
+        if response.status_code == 404:
+            response = await self._request(
+                "POST",
+                f"/{ae_name}", headers=self._headers(3),
+                json={"m2m:cnt": {"rn": container}},
             )
-            self._raise(created, "container registration")
-        elif container.status_code >= 400:
-            self._raise(container, "container retrieval")
+        self._raise(response, f"container {ae_name}/{container}")
 
-    async def create_content_instance(self, content: Any) -> str | None:
-        path = f"/{self.settings.mobius_ae_name}/{self.settings.mobius_data_container}"
-        response = await self.client.post(
-            path, headers=self._headers(4), json={"m2m:cin": {"con": content}}
+    async def _require_container(self, ae_name: str, container: str) -> None:
+        response = await self._request(
+            "GET", f"/{ae_name}/{container}", headers=self._headers()
         )
-        self._raise(response, "content instance creation")
-        body = response.json()
-        return body.get("m2m:cin", {}).get("rn")
+        if response.status_code == 404:
+            raise MobiusError(
+                f"Required device container does not exist: {ae_name}/{container}"
+            )
+        self._raise(response, f"device container {ae_name}/{container}")
+
+    async def _ensure_subscription(self, ae_name: str, container: str) -> None:
+        name = self.settings.mobius_subscription_name
+        path = f"/{ae_name}/{container}/{name}"
+        response = await self._request("GET", path, headers=self._headers())
+        if response.status_code == 404:
+            response = await self._request(
+                "POST",
+                f"/{ae_name}/{container}", headers=self._headers(23),
+                json={
+                    "m2m:sub": {
+                        "rn": name,
+                        "nu": [self.settings.mobius_notification_uri],
+                        "nct": 2,
+                    }
+                },
+            )
+        self._raise(response, f"subscription {ae_name}/{container}/{name}")
+
+    async def create_content_instance(
+        self, ae_name: str, container: str, content: Any
+    ) -> str | None:
+        if ae_name not in MOBIUS_TOPOLOGY:
+            raise MobiusError(f"Unknown AE: {ae_name}")
+        if container not in MOBIUS_TOPOLOGY[ae_name].containers:
+            raise MobiusError(f"Unknown container: {ae_name}/{container}")
+        response = await self._request(
+            "POST",
+            f"/{ae_name}/{container}",
+            headers=self._headers(4),
+            json={"m2m:cin": {"con": content}},
+        )
+        self._raise(response, f"content instance {ae_name}/{container}")
+        return response.json().get("m2m:cin", {}).get("rn")
 
     @staticmethod
     def _raise(response: httpx.Response, operation: str) -> None:
         if response.status_code >= 400:
-            detail = response.text[:500]
-            raise MobiusError(f"{operation} failed ({response.status_code}): {detail}")
-
+            raise MobiusError(
+                f"{operation} failed ({response.status_code}): {response.text[:500]}"
+            )

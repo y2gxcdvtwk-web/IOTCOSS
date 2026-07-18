@@ -23,7 +23,7 @@ def create_app() -> FastAPI:
         if settings.mobius_auto_register:
             try:
                 await app.state.mobius.ensure_structure()
-            except MobiusError:
+            except Exception:
                 pass  # health endpoint exposes the disconnected state; local workflows remain available.
         yield
         await app.state.mobius.close()

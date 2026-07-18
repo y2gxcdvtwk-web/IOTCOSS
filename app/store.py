@@ -86,6 +86,34 @@ class SessionStore:
         with self._connect() as db:
             return self._session(db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone())
 
+    async def get_latest_active_session(self) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._get_latest_active_session)
+
+    def _get_latest_active_session(self) -> dict[str, Any] | None:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM sessions WHERE status='active' ORDER BY updated_at DESC"
+            ).fetchall()
+        for row in rows:
+            session = self._session(row)
+            if session and session["status"] == "active":
+                return session
+        return None
+
+    async def get_latest_active_session(self) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._get_latest_active_session)
+
+    def _get_latest_active_session(self) -> dict[str, Any] | None:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM sessions WHERE status='active' ORDER BY updated_at DESC"
+            ).fetchall()
+        for row in rows:
+            session = self._session(row)
+            if session and session["status"] == "active":
+                return session
+        return None
+
     async def close_session(self, session_id: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._close_session, session_id)
 
