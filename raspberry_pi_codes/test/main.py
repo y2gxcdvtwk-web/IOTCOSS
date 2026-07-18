@@ -15,9 +15,10 @@ MODEL_PATH = "yolo11n-pose.tflite"
 WIDTH = 640
 HEIGHT = 840
 CAPTURE_INTERVAL = 0.05
-#==define Mobius CSE======
+#=====define Mobius AE======
 AE_NAME = "ex"
 
+# Container 딕셔너리 정의
 CONTAINERS = {
     "angle": "angle",
     "posture": "posture",
@@ -164,7 +165,7 @@ def calculate_posture(points):
     result = {
         "neck_forward": False,
         "mCRA": 0
-    }
+    } #result 딕셔너리 초기화
 
     try:
 
@@ -230,7 +231,9 @@ def save_log(data):
     with open(LOG_PATH,"a",encoding="utf-8") as f:
         f.write(json.dumps(data,ensure_ascii=False)+"\n")
 
-
+#========================
+# send_to_mobius 함수
+#========================
 def send_to_mobius(container, data):
 
     url = f"{MOBIUS_ROOT}/{AE_NAME}/{CONTAINERS[container]}"
@@ -279,7 +282,7 @@ try:
             posture = {
                 "neck_forward": False,
                 "mCRA": 0
-            }
+            } #calculate_posture 함수의 result 딕셔너리와 동일한 구조로 초기화
         
         cv2.putText(
             frame,
