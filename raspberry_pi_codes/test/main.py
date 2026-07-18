@@ -15,6 +15,7 @@ MODEL_PATH = "yolo11n-pose.tflite"
 WIDTH = 640
 HEIGHT = 840
 CAPTURE_INTERVAL = 0.05
+#==define Mobius CSE
 AE_NAME = "ex"
 
 CONTAINERS = {
