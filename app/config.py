@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     mobius_ae_id: str = ""
     mobius_timeout_seconds: float = 10
     mobius_auto_register: bool = True
-    mobius_api_key: str = ""
-    mobius_lecture: str = ""
-    mobius_creator: str = ""
+    mobius_api_key: str = "REDACTED_MOBIUS_API_KEY_00000000"
+    mobius_lecture: str = "LCT_20260002"
+    mobius_creator: str = "sjuADDHD"
     mobius_notification_uri: str = ""
     mobius_subscription_name: str = "subToAnalyticsServer"
 
