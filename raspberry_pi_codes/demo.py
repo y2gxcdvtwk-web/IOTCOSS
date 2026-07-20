@@ -261,8 +261,8 @@ def create_app_session():
         response = requests.post(
             f"{APP_BASE_URL}/api/v1/sessions",
             json={
-                "user_id": DEVICE_ID,
                 "metadata": {
+                    "device_id": DEVICE_ID,
                     "device": "Raspberry Pi",
                     "ae": AE_NAME,
                     "model": MODEL_PATH,

@@ -100,19 +100,24 @@ class SessionStore:
                 return session
         return None
 
-    async def get_latest_active_session(self) -> dict[str, Any] | None:
-        return await asyncio.to_thread(self._get_latest_active_session)
+    async def list_sessions(
+        self, limit: int = 100, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._list_sessions, limit, status)
 
-    def _get_latest_active_session(self) -> dict[str, Any] | None:
+    def _list_sessions(
+        self, limit: int, status: str | None
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM sessions"
+        params: list[Any] = []
+        if status:
+            query += " WHERE status=?"
+            params.append(status)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
         with self._connect() as db:
-            rows = db.execute(
-                "SELECT * FROM sessions WHERE status='active' ORDER BY updated_at DESC"
-            ).fetchall()
-        for row in rows:
-            session = self._session(row)
-            if session and session["status"] == "active":
-                return session
-        return None
+            rows = db.execute(query, params).fetchall()
+        return [self._session(row) for row in rows]
 
     async def close_session(self, session_id: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._close_session, session_id)
