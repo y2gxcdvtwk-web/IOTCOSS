@@ -1,10 +1,13 @@
 import cv2
 import json
+import os
 import time
 import subprocess
 import requests
 import numpy as np
 from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
 from ai_edge_litert.interpreter import Interpreter
 # =========================
 # 설정
@@ -15,32 +18,41 @@ MODEL_PATH = "yolo11n-pose.tflite"
 WIDTH = 640
 HEIGHT = 840
 CAPTURE_INTERVAL = 0.05
-AE_NAME = "ex"
+SAMPLE_UPLOAD_INTERVAL = float(os.getenv("SAMPLE_UPLOAD_INTERVAL", "1.0"))
+COMMAND_POLL_INTERVAL = float(os.getenv("COMMAND_POLL_INTERVAL", "2.0"))
+REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5.0"))
 
+# FastAPI analyticsServer
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+DEVICE_ID = os.getenv("DEVICE_ID", "posture-camera-01")
+
+# 확정 Mobius 구조: /postureCamera/{command,status,postureSamples,postureEvents}
+AE_NAME = "postureCamera"
 CONTAINERS = {
-    "angle": "angle",
-    "posture": "posture",
-    "alert": "alert"
+    "command": "command",
+    "status": "status",
+    "samples": "postureSamples",
+    "events": "postureEvents",
 }
 # =========================
 # Mobius CSE
 # =========================
 
-MOBIUS_ROOT = (
-    "https://platform.iotcoss.ac.kr/"
-    "api/proxy/swagger/Mobius"
-)
+MOBIUS_ROOT = os.getenv(
+    "MOBIUS_ROOT",
+    "https://platform.iotcoss.ac.kr/api/proxy/swagger/Mobius",
+).rstrip("/")
 
 MOBIUS_HEADERS = {
     "accept": "*/*",
     "Content-Type": "application/json;ty=4",
-    "X-M2M-RI": "123",
-    "X-M2M-Origin": "S",
-    "X-API-KEY": "REDACTED_MOBIUS_API_KEY_00000000",
-    "X-AUTH-CUSTOM-LECTURE": "LCT_20260002",
-    "X-AUTH-CUSTOM-CREATOR": "sjuADDHD",
+    "X-M2M-Origin": os.getenv("MOBIUS_ORIGIN", "S"),
+    "X-API-KEY": os.getenv("MOBIUS_API_KEY", ""),
+    "X-AUTH-CUSTOM-LECTURE": os.getenv("MOBIUS_LECTURE", ""),
+    "X-AUTH-CUSTOM-CREATOR": os.getenv("MOBIUS_CREATOR", ""),
     "Accept": "application/json"
 }
+MOBIUS_HEADERS = {key: value for key, value in MOBIUS_HEADERS.items() if value}
 # =========================
 # YOLO Load
 # =========================
@@ -226,11 +238,63 @@ def calculate_posture(points):
 # Save JSON
 # =========================
 def save_log(data):
+    Path(LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
     with open(LOG_PATH,"a",encoding="utf-8") as f:
         f.write(json.dumps(data,ensure_ascii=False)+"\n")
 
 
+def _mobius_headers(resource_type=None):
+    headers = {
+        **MOBIUS_HEADERS,
+        "X-M2M-RI": uuid4().hex,
+    }
+    if resource_type:
+        headers["Content-Type"] = (
+            f"application/vnd.onem2m-res+json;ty={resource_type}"
+        )
+    return headers
+
+
+def create_app_session():
+    """FastAPI 세션을 만들고 Mobius 이벤트에 포함할 session_id를 반환한다."""
+    try:
+        response = requests.post(
+            f"{APP_BASE_URL}/api/v1/sessions",
+            json={
+                "user_id": DEVICE_ID,
+                "metadata": {
+                    "device": "Raspberry Pi",
+                    "ae": AE_NAME,
+                    "model": MODEL_PATH,
+                },
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        session_id = response.json()["id"]
+        print(f"[APP] Session started: {session_id}")
+        return session_id
+    except requests.RequestException as exc:
+        print(f"[APP] Session start failed; offline mode: {exc}")
+        return None
+
+
+def close_app_session(session_id):
+    if not session_id:
+        return
+    try:
+        response = requests.delete(
+            f"{APP_BASE_URL}/api/v1/sessions/{session_id}",
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        print(f"[APP] Session closed: {session_id}")
+    except requests.RequestException as exc:
+        print(f"[APP] Session close failed: {exc}")
+
+
 def send_to_mobius(container, data):
+    """확정된 postureCamera 컨테이너에 CIN을 생성한다."""
 
     url = f"{MOBIUS_ROOT}/{AE_NAME}/{CONTAINERS[container]}"
 
@@ -243,19 +307,56 @@ def send_to_mobius(container, data):
     try:
         response = requests.post(
             url,
-            headers=MOBIUS_HEADERS,
-            json=payload
+            headers=_mobius_headers(4),
+            json=payload,
+            timeout=REQUEST_TIMEOUT,
         )
+        response.raise_for_status()
+        return True
+    except requests.RequestException as exc:
+        print(f"[MOBIUS] {container} send failed: {exc}")
+        return False
 
-        print("Mobius Status:", response.status_code)
-        print(response.text)
 
-    except Exception as e:
-        print("Mobius Error:", e)
+def poll_command(last_resource_name=None):
+    """command/latest를 polling하고 새 명령만 반환한다."""
+    url = f"{MOBIUS_ROOT}/{AE_NAME}/{CONTAINERS['command']}/latest"
+    try:
+        response = requests.get(
+            url,
+            headers=_mobius_headers(),
+            timeout=REQUEST_TIMEOUT,
+        )
+        if response.status_code == 404:
+            return last_resource_name, None
+        response.raise_for_status()
+        cin = response.json().get("m2m:cin", {})
+        resource_name = cin.get("rn")
+        if not resource_name or resource_name == last_resource_name:
+            return last_resource_name, None
+        return resource_name, cin.get("con")
+    except requests.RequestException as exc:
+        print(f"[MOBIUS] command polling failed: {exc}")
+        return last_resource_name, None
 # =========================
 # Main
 # =========================
 print("[INFO] Start")
+session_id = create_app_session()
+started_at = datetime.now().isoformat()
+send_to_mobius(
+    "status",
+    {
+        "device_id": DEVICE_ID,
+        "session_id": session_id,
+        "state": "online",
+        "started_at": started_at,
+    },
+)
+last_sample_upload = 0.0
+last_command_poll = 0.0
+last_command_resource = None
+previous_neck_forward = None
 try:
     while True:
         raw = process.stdout.read(frame_size)
@@ -299,23 +400,57 @@ try:
         2
     )
         save_log({"time":datetime.now().isoformat(),
+                  "session_id":session_id,
                   "posture":posture,
                   "keypoints":keypoints
                   })
-        send_to_mobius(
-            "angle",
-    {
-                "mCRA": posture["mCRA"]
-    }
-)
+        now = time.monotonic()
+        measured_at = datetime.now().isoformat()
 
-        send_to_mobius(
-            "posture",
-    {
-            "neck_forward": posture["neck_forward"],
-            "mCRA": posture["mCRA"]
-    }
-)
+        # 프레임마다 보내지 않고 설정된 주기로 샘플을 전송한다.
+        if now - last_sample_upload >= SAMPLE_UPLOAD_INTERVAL:
+            send_to_mobius(
+                "samples",
+                {
+                    "device_id": DEVICE_ID,
+                    "session_id": session_id,
+                    "measured_at": measured_at,
+                    "neck_forward": posture["neck_forward"],
+                    "mCRA": posture["mCRA"],
+                },
+            )
+            last_sample_upload = now
+
+        # 자세 상태가 바뀐 순간만 event 컨테이너에 기록한다.
+        if (
+            previous_neck_forward is not None
+            and posture["neck_forward"] != previous_neck_forward
+        ):
+            send_to_mobius(
+                "events",
+                {
+                    "device_id": DEVICE_ID,
+                    "session_id": session_id,
+                    "occurred_at": measured_at,
+                    "event": (
+                        "neck_forward_detected"
+                        if posture["neck_forward"]
+                        else "posture_recovered"
+                    ),
+                    "neck_forward": posture["neck_forward"],
+                    "mCRA": posture["mCRA"],
+                },
+            )
+        previous_neck_forward = posture["neck_forward"]
+
+        if now - last_command_poll >= COMMAND_POLL_INTERVAL:
+            last_command_resource, command = poll_command(last_command_resource)
+            if command:
+                print(f"[COMMAND] {command}")
+                if isinstance(command, dict) and command.get("action") == "stop":
+                    print("[COMMAND] Stop requested")
+                    break
+            last_command_poll = now
         cv2.imshow("YOLO11 Pose",frame)
         if cv2.waitKey(1)&0xff == ord('q'):
             break
@@ -323,6 +458,16 @@ try:
 except KeyboardInterrupt:
     print("Stopped")
 finally:
+    send_to_mobius(
+        "status",
+        {
+            "device_id": DEVICE_ID,
+            "session_id": session_id,
+            "state": "offline",
+            "stopped_at": datetime.now().isoformat(),
+        },
+    )
+    close_app_session(session_id)
     process.terminate()
     cv2.destroyAllWindows()
     print("Camera closed")
