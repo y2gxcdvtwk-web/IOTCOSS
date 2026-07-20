@@ -34,7 +34,8 @@ class MobiusClient:
         }
         headers.update({key: value for key, value in optional.items() if value})
         if resource_type:
-            headers["Content-Type"] = f"application/vnd.onem2m-res+json;ty={resource_type}"
+            # IOTCOSS Swagger proxy expects application/json;ty=N.
+            headers["Content-Type"] = f"application/json;ty={resource_type}"
         return headers
 
     async def close(self) -> None:

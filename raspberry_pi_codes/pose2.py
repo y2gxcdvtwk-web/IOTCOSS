@@ -45,7 +45,6 @@ MOBIUS_ROOT = os.getenv(
 
 MOBIUS_HEADERS = {
     "accept": "*/*",
-    "Content-Type": "application/json;ty=4",
     "X-M2M-Origin": os.getenv("MOBIUS_ORIGIN", "S"),
     "X-API-KEY": os.getenv("MOBIUS_API_KEY", ""),
     "X-AUTH-CUSTOM-LECTURE": os.getenv("MOBIUS_LECTURE", ""),
@@ -249,9 +248,8 @@ def _mobius_headers(resource_type=None):
         "X-M2M-RI": uuid4().hex,
     }
     if resource_type:
-        headers["Content-Type"] = (
-            f"application/vnd.onem2m-res+json;ty={resource_type}"
-        )
+        # IOTCOSS Swagger proxy는 vendor MIME 대신 이 형식을 요구한다.
+        headers["Content-Type"] = f"application/json;ty={resource_type}"
     return headers
 
 
@@ -311,7 +309,13 @@ def send_to_mobius(container, data):
             json=payload,
             timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
+        if not response.ok:
+            print(
+                f"[MOBIUS] {container} rejected: HTTP {response.status_code}\n"
+                f"response={response.text[:1000]}\n"
+                f"payload={json.dumps(payload, ensure_ascii=False)}"
+            )
+            return False
         return True
     except requests.RequestException as exc:
         print(f"[MOBIUS] {container} send failed: {exc}")
