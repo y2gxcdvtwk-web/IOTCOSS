@@ -67,3 +67,36 @@ AI는 기본적으로 외부 서비스 없이 로컬 분석을 사용합니다. 
 - `raspberry_pi_codes/`: 카메라 및 자세 분석 코드
 - `arduino_codes/`: 데스크와 피드백 장치 코드
 - `tests/`: FastAPI 통합 테스트
+
+## Raspberry Pi 자세 카메라 실행
+
+`raspberry_pi_codes/pose2.py`는 시작할 때 FastAPI 세션을 생성하고, 해당
+`session_id`를 모든 Mobius 데이터에 포함합니다.
+
+```bash
+export APP_BASE_URL="http://<FastAPI서버IP>:8000"
+export DEVICE_ID="posture-camera-01"
+export MOBIUS_ROOT="https://platform.iotcoss.ac.kr/api/proxy/swagger/Mobius"
+export MOBIUS_ORIGIN="S"
+export MOBIUS_API_KEY="<API key>"
+export MOBIUS_LECTURE="<lecture id>"
+export MOBIUS_CREATOR="<creator id>"
+
+# 선택 설정
+export SAMPLE_UPLOAD_INTERVAL="1.0"
+export COMMAND_POLL_INTERVAL="2.0"
+export REQUEST_TIMEOUT="5.0"
+
+python3 raspberry_pi_codes/pose2.py
+```
+
+데이터 흐름:
+
+- 시작/종료 상태 → `postureCamera/status`
+- 주기 측정값 → `postureCamera/postureSamples`
+- 거북목 감지/회복 전환 → `postureCamera/postureEvents`
+- 제어 명령 polling → `postureCamera/command/latest`
+- 앱 세션 시작/종료 → FastAPI `/api/v1/sessions`
+
+FastAPI가 다른 PC에서 실행 중이면 방화벽에서 TCP 8000 포트를 허용하고
+`APP_BASE_URL`에 `localhost`가 아닌 해당 PC의 내부 IP를 사용해야 합니다.
