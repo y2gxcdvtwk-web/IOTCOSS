@@ -23,7 +23,8 @@ async def _session_or_404(request: Request, session_id: str) -> dict:
 
 @router.post("/sessions", response_model=SessionView, status_code=status.HTTP_201_CREATED)
 async def create_session(payload: SessionCreate, request: Request):
-    session = await request.app.state.store.create_session(payload.user_id, payload.metadata)
+    identity = payload.user_id or str(payload.metadata.get("device_id") or "device")
+    session = await request.app.state.store.create_session(identity, payload.metadata)
     try:
         await request.app.state.mobius.create_content_instance(
             ANALYTICS_AE, "currentSession", session
@@ -31,6 +32,24 @@ async def create_session(payload: SessionCreate, request: Request):
     except MobiusError:
         pass
     return session
+
+
+async def _existing_session_or_404(request: Request, session_id: str) -> dict:
+    session = await request.app.state.store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+@router.get("/sessions", response_model=list[SessionView])
+async def list_sessions(
+    request: Request,
+    limit: int = Query(100, ge=1, le=500),
+    session_status: str | None = Query(default=None, alias="status"),
+):
+    if session_status not in (None, "active", "closed", "expired"):
+        raise HTTPException(status_code=422, detail="Invalid session status")
+    return await request.app.state.store.list_sessions(limit, session_status)
 
 
 @router.get("/sessions/{session_id}", response_model=SessionView)
@@ -89,13 +108,13 @@ async def create_event(session_id: str, payload: EventCreate, request: Request):
 
 @router.get("/sessions/{session_id}/events", response_model=list[EventView])
 async def list_events(session_id: str, request: Request, limit: int = Query(100, ge=1, le=500)):
-    await _session_or_404(request, session_id)
+    await _existing_session_or_404(request, session_id)
     return await request.app.state.store.list_events(session_id, limit)
 
 
 @router.post("/sessions/{session_id}/analysis", response_model=AnalysisResult)
 async def analyze(session_id: str, payload: AnalysisRequest, request: Request):
-    await _session_or_404(request, session_id)
+    await _existing_session_or_404(request, session_id)
     parts: list[str] = []
     if payload.include_session_events:
         events = await request.app.state.store.list_events(session_id, 200)

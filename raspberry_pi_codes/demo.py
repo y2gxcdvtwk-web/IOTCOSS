@@ -23,7 +23,7 @@ COMMAND_POLL_INTERVAL = float(os.getenv("COMMAND_POLL_INTERVAL", "2.0"))
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5.0"))
 
 # FastAPI analyticsServer
-APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://172.20.10.2:8000").rstrip("/")
 DEVICE_ID = os.getenv("DEVICE_ID", "posture-camera-01")
 
 # 확정 Mobius 구조: /postureCamera/{command,status,postureSamples,postureEvents}
@@ -261,8 +261,8 @@ def create_app_session():
         response = requests.post(
             f"{APP_BASE_URL}/api/v1/sessions",
             json={
-                "user_id": DEVICE_ID,
                 "metadata": {
+                    "device_id": DEVICE_ID,
                     "device": "Raspberry Pi",
                     "ae": AE_NAME,
                     "model": MODEL_PATH,

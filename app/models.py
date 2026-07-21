@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class SessionCreate(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
+    user_id: str | None = Field(default=None, min_length=1, max_length=128)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -55,10 +55,6 @@ class MobiusIngest(BaseModel):
     session_id: str | None = None
     content: Any
     resource_name: str | None = None
-
-
-class DeviceCommand(BaseModel):
-    content: dict[str, Any]
 
 
 class DeviceCommand(BaseModel):
