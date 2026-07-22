@@ -1,0 +1,12 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\arduino_codes",
+    "\\arduino_codes\\desk_light_and_buzzer",
+    "\\cmake-build-debug\\CMakeFiles",
+    "\\raspberry_pi_codes",
+    "\\raspberry_pi_codes\\test"
+  ],
+  "SelectedNode": "\\raspberry_pi_codes\\test\\main.py",
+  "PreviewInSolutionExplorer": false
+}

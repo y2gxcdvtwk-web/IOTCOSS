@@ -79,6 +79,28 @@ class SessionStore:
             )
         return item
 
+    async def upsert_session(self, item: dict[str, Any]) -> bool:
+        return await asyncio.to_thread(self._upsert_session, item)
+
+    def _upsert_session(self, item: dict[str, Any]) -> bool:
+        required = {
+            "id", "user_id", "status", "metadata", "created_at", "updated_at", "expires_at"
+        }
+        if not required <= item.keys():
+            return False
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO sessions VALUES (:id,:user_id,:status,:metadata,:created_at,:updated_at,:expires_at)
+                ON CONFLICT(id) DO UPDATE SET
+                    user_id=excluded.user_id, status=excluded.status,
+                    metadata=excluded.metadata, created_at=excluded.created_at,
+                    updated_at=excluded.updated_at, expires_at=excluded.expires_at
+                """,
+                {**item, "metadata": json.dumps(item["metadata"], ensure_ascii=False)},
+            )
+        return True
+
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._get_session, session_id)
 
@@ -100,19 +122,24 @@ class SessionStore:
                 return session
         return None
 
-    async def get_latest_active_session(self) -> dict[str, Any] | None:
-        return await asyncio.to_thread(self._get_latest_active_session)
+    async def list_sessions(
+        self, limit: int = 100, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._list_sessions, limit, status)
 
-    def _get_latest_active_session(self) -> dict[str, Any] | None:
+    def _list_sessions(
+        self, limit: int, status: str | None
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM sessions"
+        params: list[Any] = []
+        if status:
+            query += " WHERE status=?"
+            params.append(status)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
         with self._connect() as db:
-            rows = db.execute(
-                "SELECT * FROM sessions WHERE status='active' ORDER BY updated_at DESC"
-            ).fetchall()
-        for row in rows:
-            session = self._session(row)
-            if session and session["status"] == "active":
-                return session
-        return None
+            rows = db.execute(query, params).fetchall()
+        return [self._session(row) for row in rows]
 
     async def close_session(self, session_id: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._close_session, session_id)
@@ -150,6 +177,27 @@ class SessionStore:
                 (_now().isoformat(), (_now() + timedelta(seconds=self.ttl_seconds)).isoformat(), session_id),
             )
         return item
+
+    async def upsert_event(self, item: dict[str, Any]) -> bool:
+        return await asyncio.to_thread(self._upsert_event, item)
+
+    def _upsert_event(self, item: dict[str, Any]) -> bool:
+        required = {"id", "session_id", "type", "content", "source", "created_at"}
+        if not required <= item.keys() or not self._get_session(item["session_id"]):
+            return False
+        normalized = {**item, "mobius_resource_name": item.get("mobius_resource_name")}
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO events VALUES (:id,:session_id,:type,:content,:source,:created_at,:mobius_resource_name)
+                ON CONFLICT(id) DO UPDATE SET
+                    content=excluded.content, source=excluded.source,
+                    created_at=excluded.created_at,
+                    mobius_resource_name=excluded.mobius_resource_name
+                """,
+                {**normalized, "content": json.dumps(normalized["content"], ensure_ascii=False)},
+            )
+        return True
 
     async def list_events(self, session_id: str, limit: int = 100) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_events, session_id, limit)

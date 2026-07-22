@@ -23,7 +23,7 @@ COMMAND_POLL_INTERVAL = float(os.getenv("COMMAND_POLL_INTERVAL", "2.0"))
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5.0"))
 
 # FastAPI analyticsServer
-APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://172.20.10.2:8000").rstrip("/")
 DEVICE_ID = os.getenv("DEVICE_ID", "posture-camera-01")
 
 # 확정 Mobius 구조: /postureCamera/{command,status,postureSamples,postureEvents}
@@ -45,11 +45,12 @@ MOBIUS_ROOT = os.getenv(
 
 MOBIUS_HEADERS = {
     "accept": "*/*",
-    "Content-Type": "application/json;ty=4",
     "X-M2M-Origin": os.getenv("MOBIUS_ORIGIN", "S"),
-    "X-API-KEY": os.getenv("MOBIUS_API_KEY", ""),
-    "X-AUTH-CUSTOM-LECTURE": os.getenv("MOBIUS_LECTURE", ""),
-    "X-AUTH-CUSTOM-CREATOR": os.getenv("MOBIUS_CREATOR", ""),
+    "X-API-KEY": os.getenv(
+        "MOBIUS_API_KEY", "REDACTED_MOBIUS_API_KEY_00000000"
+    ),
+    "X-AUTH-CUSTOM-LECTURE": os.getenv("MOBIUS_LECTURE", "LCT_20260002"),
+    "X-AUTH-CUSTOM-CREATOR": os.getenv("MOBIUS_CREATOR", "sjuADDHD"),
     "Accept": "application/json"
 }
 MOBIUS_HEADERS = {key: value for key, value in MOBIUS_HEADERS.items() if value}
@@ -249,9 +250,8 @@ def _mobius_headers(resource_type=None):
         "X-M2M-RI": uuid4().hex,
     }
     if resource_type:
-        headers["Content-Type"] = (
-            f"application/vnd.onem2m-res+json;ty={resource_type}"
-        )
+        # IOTCOSS Swagger proxy는 vendor MIME 대신 이 형식을 요구한다.
+        headers["Content-Type"] = f"application/json;ty={resource_type}"
     return headers
 
 
@@ -261,8 +261,8 @@ def create_app_session():
         response = requests.post(
             f"{APP_BASE_URL}/api/v1/sessions",
             json={
-                "user_id": DEVICE_ID,
                 "metadata": {
+                    "device_id": DEVICE_ID,
                     "device": "Raspberry Pi",
                     "ae": AE_NAME,
                     "model": MODEL_PATH,
@@ -311,7 +311,13 @@ def send_to_mobius(container, data):
             json=payload,
             timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
+        if not response.ok:
+            print(
+                f"[MOBIUS] {container} rejected: HTTP {response.status_code}\n"
+                f"response={response.text[:1000]}\n"
+                f"payload={json.dumps(payload, ensure_ascii=False)}"
+            )
+            return False
         return True
     except requests.RequestException as exc:
         print(f"[MOBIUS] {container} send failed: {exc}")
