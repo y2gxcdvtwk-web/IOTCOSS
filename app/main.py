@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -22,15 +23,32 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         await app.state.store.initialize()
         app.state.sync_status = {"state": "not-run"}
+        app.state.subscription_status = {"state": "not-configured"}
+        subscription_task = None
         if settings.mobius_auto_register:
             try:
-                await app.state.mobius.ensure_structure()
+                await app.state.mobius.ensure_analytics_structure()
                 if settings.mobius_sync_on_startup:
                     counts = await app.state.synchronizer.restore()
                     app.state.sync_status = {"state": "ok", **counts}
             except Exception as exc:
                 app.state.sync_status = {"state": "error", "detail": str(exc)}
+            if settings.mobius_notification_uri:
+                async def delayed_subscription_reconcile():
+                    await asyncio.sleep(2)
+                    try:
+                        await app.state.mobius.ensure_subscriptions()
+                        app.state.subscription_status = {"state": "ok"}
+                    except Exception as exc:
+                        app.state.subscription_status = {
+                            "state": "error", "detail": str(exc)
+                        }
+
+                app.state.subscription_status = {"state": "pending"}
+                subscription_task = asyncio.create_task(delayed_subscription_reconcile())
         yield
+        if subscription_task and not subscription_task.done():
+            subscription_task.cancel()
         await app.state.mobius.close()
 
     app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
@@ -62,6 +80,7 @@ def create_app() -> FastAPI:
             "status": "ok",
             "mobius": "connected" if mobius else "disconnected",
             "ae_sync": request.app.state.sync_status,
+            "subscriptions": request.app.state.subscription_status,
         }
 
     return app

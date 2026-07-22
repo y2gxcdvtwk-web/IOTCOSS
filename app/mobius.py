@@ -55,10 +55,16 @@ class MobiusClient:
             raise MobiusError(f"Mobius connection failed: {exc}") from exc
 
     async def ensure_structure(self) -> None:
+        await self.ensure_analytics_structure()
+        await self.ensure_subscriptions()
+
+    async def ensure_analytics_structure(self) -> None:
         analytics = "analyticsServer"
         await self._ensure_ae(analytics)
         for container in MOBIUS_TOPOLOGY[analytics].containers:
             await self._ensure_container(analytics, container)
+
+    async def ensure_subscriptions(self) -> None:
         if self.settings.mobius_notification_uri:
             for ae_name, container in SUBSCRIPTION_SOURCES:
                 await self._require_container(ae_name, container)

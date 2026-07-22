@@ -251,6 +251,19 @@ async def sync_from_ae(request: Request):
     return request.app.state.sync_status
 
 
+@router.post("/admin/reconcile-subscriptions")
+async def reconcile_subscriptions(request: Request):
+    try:
+        await request.app.state.mobius.ensure_subscriptions()
+    except MobiusError as exc:
+        request.app.state.subscription_status = {
+            "state": "error", "detail": str(exc)
+        }
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    request.app.state.subscription_status = {"state": "ok"}
+    return request.app.state.subscription_status
+
+
 @router.websocket("/ws/sessions/{session_id}")
 async def session_socket(websocket: WebSocket, session_id: str):
     manager = websocket.app.state.realtime

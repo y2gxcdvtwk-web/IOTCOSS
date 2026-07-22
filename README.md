@@ -151,7 +151,14 @@ MOBIUS_SYNC_ON_STARTUP=true
 ```
 
 FastAPI를 재시작하면 서버가 9개 `subToAnalyticsServer` SUB를 확인합니다. SUB가
-없으면 생성하고, 기존 SUB의 `nu`가 다른 주소이면 현재 공개 주소로 갱신합니다.
+없으면 서버 준비 완료 후 생성하고, 기존 SUB의 `nu`가 다른 주소이면 현재 공개
+주소로 갱신합니다. 자동 등록에 실패한 경우 다음 요청으로 재시도합니다.
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8000/api/v1/admin/reconcile-subscriptions
+```
 
 ### 4. 공개 연결 및 동기화 확인
 
