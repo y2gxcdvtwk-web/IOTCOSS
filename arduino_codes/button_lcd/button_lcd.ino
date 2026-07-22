@@ -7,8 +7,8 @@
 // ==========================================
 // 1. 네트워크 및 Mobius 설정
 // ==========================================
-char ssid[] = "YOUR_WIFI_SSID";         // 사용하는 Wi-Fi 이름
-char pass[] = "YOUR_WIFI_PASSWORD";     // 사용하는 Wi-Fi 비밀번호
+char ssid[] = "ADDHD";         // 사용하는 Wi-Fi 이름
+char pass[] = "PASSWORD";     // 사용하는 Wi-Fi 비밀번호
 
 const char MOBIUS_HOST[] = "platform.iotcoss.ac.kr";
 const int MOBIUS_PORT = 443;
@@ -50,7 +50,7 @@ const unsigned long debounceDelay = 200;
 
 // Polling 타이머 (1초 주기)
 unsigned long lastPollTime = 0;
-const unsigned long pollInterval = 1000;
+const unsigned long pollInterval = 5000;
 
 // ==========================================
 // 4. 주요 함수 구현
@@ -80,7 +80,7 @@ void sendButtonEvent(const char* buttonType) {
     Serial.println("Connection failed for POST buttonEvent");
     return;
   }
-
+  client.setTimeout(20);
   StaticJsonDocument<512> doc;
   JsonObject cin = doc.createNestedObject("m2m:cin");
   JsonObject con = cin.createNestedObject("con");
@@ -131,7 +131,7 @@ void checkButtons() {
   unsigned long now = millis();
 
   // A버튼 (KICKOFF) 체크
-  if (digitalRead(BTN_KICKOFF_PIN) == HIGH) {
+  if (digitalRead(BTN_KICKOFF_PIN) == 1) {
     if (now - lastKickoffTime > debounceDelay) {
       lastKickoffTime = now;
       Serial.println("[BTN] KICKOFF Pressed");
@@ -140,7 +140,7 @@ void checkButtons() {
   }
 
   // B버튼 (ACCEPT) 체크
-  if (digitalRead(BTN_ACCEPT_PIN) == HIGH) {
+  if (digitalRead(BTN_ACCEPT_PIN) == 1) {
     if (now - lastAcceptTime > debounceDelay) {
       lastAcceptTime = now;
       // 활성 제안이 있을 때만 수락 이벤트 전송
@@ -156,10 +156,18 @@ void checkButtons() {
 
 // lcdCommand/latest Polling (GET)
 void pollLcdCommand() {
+  Serial.println("1");
+
   if (!client.connect(MOBIUS_HOST, MOBIUS_PORT)) {
-    return;
+      Serial.println("connect fail");
+      return;
   }
 
+  Serial.println("2");
+
+  client.setTimeout(30);
+
+  Serial.println("3");
   String requestPath = String(MOBIUS_BASE_PATH) + "/deskInterface/lcdCommand/latest";
 
   client.println("GET " + requestPath + " HTTP/1.1");
@@ -178,6 +186,7 @@ void pollLcdCommand() {
   String jsonResponse = "";
 
   while (client.connected() || client.available()) {
+    checkButtons(); 
     String line = client.readStringUntil('\n');
     if (line == "\r") {
       isBody = true;
