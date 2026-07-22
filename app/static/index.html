@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ADDHD Analytics</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main>
+  <header class="topbar">
+    <div>
+      <span class="eyebrow">ANALYTICS SERVER</span>
+      <h1>자세 세션</h1>
+      <p id="status">Raspberry Pi 세션을 불러오는 중입니다.</p>
+    </div>
+    <button id="refresh" class="secondary">새로고침</button>
+  </header>
+
+  <section class="dashboard">
+    <aside class="card sessions-panel">
+      <div class="section-heading">
+        <h2>세션 목록</h2>
+        <span id="sessionCount" class="count">0</span>
+      </div>
+      <div class="filters" role="group" aria-label="세션 필터">
+        <button class="filter active" data-status="">전체</button>
+        <button class="filter" data-status="active">진행 중</button>
+        <button class="filter" data-status="closed">종료</button>
+      </div>
+      <div id="sessions" class="session-list"></div>
+      <div id="emptySessions" class="empty hidden">
+        Raspberry Pi 코드를 실행하면 세션이 자동으로 나타납니다.
+      </div>
+    </aside>
+
+    <section class="card detail-panel">
+      <div id="emptyDetail" class="empty detail-empty">
+        왼쪽에서 세션을 선택하세요.
+      </div>
+      <div id="sessionDetail" class="hidden">
+        <div class="detail-heading">
+          <div>
+            <div class="title-row">
+              <h2 id="detailTitle">세션</h2>
+              <span id="detailBadge" class="badge"></span>
+            </div>
+            <p id="detailMeta" class="muted"></p>
+          </div>
+          <button id="analyze">AI 분석</button>
+        </div>
+
+        <div class="metrics">
+          <div class="metric"><span>수집 데이터</span><strong id="eventCount">0</strong></div>
+          <div class="metric"><span>최근 mCRA</span><strong id="latestMcra">—</strong></div>
+          <div class="metric"><span>최근 자세</span><strong id="latestPosture">—</strong></div>
+        </div>
+
+        <section id="analysisPanel" class="analysis hidden">
+          <span class="eyebrow">AI ANALYSIS</span>
+          <h3 id="analysisSummary"></h3>
+          <ul id="recommendations"></ul>
+        </section>
+
+        <div class="timeline-heading">
+          <h3>자동 수집 타임라인</h3>
+          <span id="liveState" class="live-state">실시간 연결</span>
+        </div>
+        <div id="events" class="timeline"></div>
+        <div id="emptyEvents" class="empty hidden">아직 수집된 데이터가 없습니다.</div>
+      </div>
+    </section>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
