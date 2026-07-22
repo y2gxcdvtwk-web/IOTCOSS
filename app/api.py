@@ -69,6 +69,9 @@ async def close_session(session_id: str, request: Request):
         await request.app.state.mobius.create_content_instance(
             ANALYTICS_AE, "sessionSummaries", session
         )
+        await request.app.state.mobius.create_content_instance(
+            ANALYTICS_AE, "currentSession", session
+        )
     except MobiusError:
         pass
     return session
@@ -210,6 +213,12 @@ async def receive_notification(request: Request, payload: dict[str, Any] = Body(
         session = await request.app.state.store.create_session(
             "mobius-device", {"origin": source}
         )
+        try:
+            await request.app.state.mobius.create_content_instance(
+                ANALYTICS_AE, "currentSession", session
+            )
+        except MobiusError:
+            pass
 
     event = await request.app.state.store.add_event(
         session["id"],
@@ -218,10 +227,28 @@ async def receive_notification(request: Request, payload: dict[str, Any] = Body(
         source,
         cin.get("rn") if isinstance(cin, dict) else None,
     )
+    try:
+        await request.app.state.mobius.create_content_instance(
+            ANALYTICS_AE, "sessionEvents", {"event": event}
+        )
+    except MobiusError:
+        # The notification is still acknowledged to prevent repeated delivery;
+        # health/admin sync exposes reconciliation state.
+        pass
     await request.app.state.realtime.broadcast(
         session["id"], {"event": "mobius-notification", "data": event}
     )
     return {}
+
+
+@router.post("/admin/sync-from-ae")
+async def sync_from_ae(request: Request):
+    try:
+        counts = await request.app.state.synchronizer.restore()
+    except MobiusError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    request.app.state.sync_status = {"state": "ok", **counts}
+    return request.app.state.sync_status
 
 
 @router.websocket("/ws/sessions/{session_id}")

@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.mobius import MobiusClient, MobiusError
 from app.realtime import ConnectionManager
 from app.store import SessionStore
+from app.sync import AnalyticsSynchronizer
 
 
 def create_app() -> FastAPI:
@@ -20,11 +21,15 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await app.state.store.initialize()
+        app.state.sync_status = {"state": "not-run"}
         if settings.mobius_auto_register:
             try:
                 await app.state.mobius.ensure_structure()
-            except Exception:
-                pass  # health endpoint exposes the disconnected state; local workflows remain available.
+                if settings.mobius_sync_on_startup:
+                    counts = await app.state.synchronizer.restore()
+                    app.state.sync_status = {"state": "ok", **counts}
+            except Exception as exc:
+                app.state.sync_status = {"state": "error", "detail": str(exc)}
         yield
         await app.state.mobius.close()
 
@@ -33,6 +38,7 @@ def create_app() -> FastAPI:
     app.state.mobius = MobiusClient(settings)
     app.state.analyzer = Analyzer(settings)
     app.state.realtime = ConnectionManager()
+    app.state.synchronizer = AnalyticsSynchronizer(app.state.mobius, app.state.store)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
@@ -52,7 +58,11 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health(request: Request):
         mobius = await request.app.state.mobius.health()
-        return {"status": "ok", "mobius": "connected" if mobius else "disconnected"}
+        return {
+            "status": "ok",
+            "mobius": "connected" if mobius else "disconnected",
+            "ae_sync": request.app.state.sync_status,
+        }
 
     return app
 

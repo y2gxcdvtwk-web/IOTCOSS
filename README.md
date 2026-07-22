@@ -100,3 +100,91 @@ python3 raspberry_pi_codes/pose2.py
 
 FastAPI가 다른 PC에서 실행 중이면 방화벽에서 TCP 8000 포트를 허용하고
 `APP_BASE_URL`에 `localhost`가 아닌 해당 PC의 내부 IP를 사용해야 합니다.
+
+## Cloudflare Tunnel 공개 운영
+
+Mobius SUB의 `nu`는 Mobius CSE가 접근할 수 있는 공개 HTTPS 주소여야 합니다.
+고정 SUB 주소를 위해 Cloudflare 계정과 Cloudflare DNS에 연결된 도메인을 사용하는
+named tunnel을 권장합니다.
+
+### 1. cloudflared 설치 및 로그인
+
+```powershell
+winget install --id Cloudflare.cloudflared
+cloudflared tunnel login
+```
+
+### 2. 고정 터널 생성
+
+```powershell
+cloudflared tunnel create addhd-analytics
+cloudflared tunnel list
+cloudflared tunnel route dns addhd-analytics analytics.<YOUR-DOMAIN>
+```
+
+생성 결과의 Tunnel UUID를 확인한 후
+`cloudflare/config.yml.example`을 `%USERPROFILE%\.cloudflared\config.yml`로 복사하고
+UUID, Windows 사용자명, 도메인을 실제 값으로 바꿉니다.
+
+```powershell
+cloudflared tunnel ingress validate
+cloudflared tunnel run addhd-analytics
+```
+
+Cloudflare Dashboard 방식으로 만들었다면 Public Hostname의 Service URL을
+`http://localhost:8000`으로 설정하고 화면에 표시된 token 명령으로 실행해도 됩니다.
+
+### 3. FastAPI 공개 알림 주소 설정
+
+프로젝트 폴더에서 다음 스크립트를 실행합니다.
+
+```powershell
+.\scripts\set_public_url.ps1 -PublicUrl "https://analytics.<YOUR-DOMAIN>"
+```
+
+설정되는 값:
+
+```env
+MOBIUS_NOTIFICATION_URI=https://analytics.<YOUR-DOMAIN>/api/v1/mobius/notifications
+MOBIUS_AUTO_REGISTER=true
+MOBIUS_SYNC_ON_STARTUP=true
+```
+
+FastAPI를 재시작하면 서버가 9개 `subToAnalyticsServer` SUB를 확인합니다. SUB가
+없으면 생성하고, 기존 SUB의 `nu`가 다른 주소이면 현재 공개 주소로 갱신합니다.
+
+### 4. 공개 연결 및 동기화 확인
+
+```powershell
+Invoke-RestMethod https://analytics.<YOUR-DOMAIN>/health
+Invoke-RestMethod `
+  -Method Post `
+  -Uri https://analytics.<YOUR-DOMAIN>/api/v1/admin/sync-from-ae
+```
+
+`/health`의 `ae_sync.state`가 `ok`이면 `analyticsServer` AE에서 SQLite 조회 캐시를
+복원한 상태입니다.
+
+### 임시 Quick Tunnel
+
+도메인 없이 단기 테스트할 때만 사용합니다.
+
+```powershell
+cloudflared tunnel --url http://localhost:8000
+.\scripts\set_public_url.ps1 -PublicUrl "https://발급주소.trycloudflare.com"
+```
+
+Quick Tunnel 주소는 재시작할 때 바뀌므로 주소를 다시 설정하고 FastAPI도 재시작해야
+합니다. 고정 SUB를 운영할 때는 named tunnel을 사용합니다.
+
+### AE 원본 및 SQLite 캐시
+
+- `analyticsServer/currentSession`: 세션 상태 스냅샷
+- `analyticsServer/sessionEvents`: 장치 알림을 포함한 세션 이벤트 원본
+- `analyticsServer/suggestions`: AI 분석 결과
+- `analyticsServer/sessionSummaries`: 종료 세션 스냅샷
+- SQLite `data/app.db`: 웹 UI와 WebSocket을 위한 재구성 가능한 로컬 조회 캐시
+
+서버 시작 시 또는 `POST /api/v1/admin/sync-from-ae` 호출 시 AE의 CIN을 읽어 SQLite를
+upsert합니다. SQLite가 삭제되어도 AE 데이터로 세션 목록과 타임라인을 복원할 수
+있도록 설계되어 있습니다.
