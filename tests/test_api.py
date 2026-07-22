@@ -190,7 +190,8 @@ def test_delayed_offline_notification_does_not_create_new_session(
     assert len(sessions) == 1
     assert sessions[0]["status"] == "closed"
     assert sessions[0]["updated_at"] == closed["updated_at"]
-    assert events[0]["content"]["state"] == "offline"
+    offline = next(event for event in events if event["content"].get("state") == "offline")
+    assert offline["type"] == "status"
 
 
 def test_mcra_overrides_inverted_neck_forward_flag(tmp_path: Path, monkeypatch):

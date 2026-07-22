@@ -31,11 +31,16 @@ class AnalyticsSynchronizer:
             content = cin.get("con")
             if not isinstance(content, dict) or not content.get("session_id"):
                 continue
+            structured = bool(content.get("suggestion_id") and content.get("type"))
             event = {
                 "id": f"suggestion:{cin.get('rn', cin.get('ri', 'unknown'))}",
                 "session_id": content["session_id"],
-                "type": "analysis",
-                "content": {key: value for key, value in content.items() if key != "session_id"},
+                "type": "suggestion" if structured else "analysis",
+                "content": (
+                    content
+                    if structured
+                    else {key: value for key, value in content.items() if key != "session_id"}
+                ),
                 "source": "ai",
                 "created_at": cin.get("ct") or cin.get("lt"),
                 "mobius_resource_name": cin.get("rn"),
