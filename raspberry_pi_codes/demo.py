@@ -230,7 +230,7 @@ def calculate_posture(points):
 
         # 120도 기준 판단
         # Confirmed rule: mCRA >= 120 degrees means forward-head posture.
-        result["neck_forward"] = mcra >= NECK_FORWARD_THRESHOLD
+        result["neck_forward"] = bool(mcra >= NECK_FORWARD_THRESHOLD)
 
 
     except Exception as e:
@@ -241,10 +241,19 @@ def calculate_posture(points):
 # =========================
 # Save JSON
 # =========================
+def _json_default(value):
+    """Convert NumPy values produced by inference to JSON-compatible values."""
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def save_log(data):
     Path(LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
     with open(LOG_PATH,"a",encoding="utf-8") as f:
-        f.write(json.dumps(data,ensure_ascii=False)+"\n")
+        f.write(json.dumps(data, ensure_ascii=False, default=_json_default) + "\n")
 
 
 def _mobius_headers(resource_type=None):
