@@ -7,13 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.analysis import Analyzer
 from app.api import router
 from app.config import get_settings
 from app.mobius import MobiusClient, MobiusError
 from app.realtime import ConnectionManager
 from app.store import SessionStore
 from app.sync import AnalyticsSynchronizer
+from app.suggestions import SuggestionEngine
 
 
 def create_app() -> FastAPI:
@@ -54,9 +54,11 @@ def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
     app.state.store = SessionStore(settings.database_path, settings.session_ttl_seconds)
     app.state.mobius = MobiusClient(settings)
-    app.state.analyzer = Analyzer(settings)
     app.state.realtime = ConnectionManager()
     app.state.synchronizer = AnalyticsSynchronizer(app.state.mobius, app.state.store)
+    app.state.suggestion_engine = SuggestionEngine(
+        settings, app.state.store, app.state.mobius
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,

@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     mobius_subscription_name: str = "subToAnalyticsServer"
     mobius_sync_on_startup: bool = True
 
+    posture_analysis_interval_seconds: float = 10
+    posture_suggestion_cooldown_seconds: int = 180
+    posture_min_samples: int = 5
+    desk_standing_height_cm: int = 125
+
     ai_provider: str = "local"
     ai_model: str = "gpt-4.1-mini"
     openai_api_key: str = ""
