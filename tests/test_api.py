@@ -146,3 +146,89 @@ def test_mobius_notification_is_added_to_current_session(tmp_path: Path, monkeyp
     assert response.status_code == 200
     assert events[0]["source"] == "postureCamera/postureEvents"
 
+
+def test_delayed_offline_notification_does_not_create_new_session(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("MOBIUS_AUTO_REGISTER", "false")
+    get_settings.cache_clear()
+    from app.main import create_app
+
+    app = create_app()
+
+    async def create_content_instance(*args):
+        return "cin-1"
+
+    app.state.mobius.create_content_instance = create_content_instance
+    with TestClient(app) as client:
+        session = client.post("/api/v1/sessions", json={}).json()
+        closed = client.delete(f"/api/v1/sessions/{session['id']}").json()
+        response = client.post(
+            "/api/v1/mobius/notifications",
+            json={
+                "m2m:sgn": {
+                    "sur": "/Mobius/postureCamera/status/subToAnalyticsServer",
+                    "nev": {
+                        "rep": {
+                            "m2m:cin": {
+                                "rn": "cin-offline",
+                                "con": {
+                                    "session_id": session["id"],
+                                    "state": "offline",
+                                },
+                            }
+                        }
+                    },
+                }
+            },
+        )
+        sessions = client.get("/api/v1/sessions").json()
+        events = client.get(f"/api/v1/sessions/{session['id']}/events").json()
+
+    assert response.status_code == 200
+    assert len(sessions) == 1
+    assert sessions[0]["status"] == "closed"
+    assert sessions[0]["updated_at"] == closed["updated_at"]
+    assert events[0]["content"]["state"] == "offline"
+
+
+def test_mcra_overrides_inverted_neck_forward_flag(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("MOBIUS_AUTO_REGISTER", "false")
+    get_settings.cache_clear()
+    from app.main import create_app
+
+    app = create_app()
+
+    async def create_content_instance(*args):
+        return "cin-1"
+
+    app.state.mobius.create_content_instance = create_content_instance
+    with TestClient(app) as client:
+        session = client.post("/api/v1/sessions", json={}).json()
+        response = client.post(
+            "/api/v1/mobius/notifications",
+            json={
+                "m2m:sgn": {
+                    "sur": "/Mobius/postureCamera/postureSamples/subToAnalyticsServer",
+                    "nev": {
+                        "rep": {
+                            "m2m:cin": {
+                                "rn": "cin-posture",
+                                "con": {
+                                    "session_id": session["id"],
+                                    "mCRA": 125,
+                                    "neck_forward": False,
+                                },
+                            }
+                        }
+                    },
+                }
+            },
+        )
+        events = client.get(f"/api/v1/sessions/{session['id']}/events").json()
+
+    assert response.status_code == 200
+    assert events[0]["content"]["neck_forward"] is True
+

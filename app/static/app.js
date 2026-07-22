@@ -33,6 +33,13 @@ function statusLabel(status) {
   return {active: "진행 중", closed: "종료", expired: "만료"}[status] || status;
 }
 
+function isNeckForward(content) {
+  if (!content) return null;
+  const mcra = Number(content.mCRA);
+  if (content.mCRA != null && Number.isFinite(mcra)) return mcra >= 120;
+  return content.neck_forward == null ? null : Boolean(content.neck_forward);
+}
+
 function renderSessions(sessions) {
   $("sessionCount").textContent = sessions.length;
   $("sessions").innerHTML = "";
@@ -109,8 +116,9 @@ function renderEvents(events) {
   const sensorEvents = events.filter((event) => event.type !== "analysis");
   const latest = [...sensorEvents].reverse().find((event) => event.content && typeof event.content === "object");
   $("latestMcra").textContent = latest?.content?.mCRA == null ? "—" : `${latest.content.mCRA}°`;
+  const latestNeckForward = isNeckForward(latest?.content);
   $("latestPosture").textContent =
-    latest?.content?.neck_forward == null ? "—" : latest.content.neck_forward ? "거북목" : "정상";
+    latestNeckForward == null ? "—" : latestNeckForward ? "거북목" : "정상";
   [...events].reverse().forEach(renderEvent);
 }
 
@@ -118,8 +126,9 @@ function renderEvent(item) {
   const content = item.content && typeof item.content === "object" ? item.content : {value: item.content};
   const row = document.createElement("article");
   row.className = "event-row";
-  const posture = content.neck_forward == null ? "" :
-    `<span class="posture ${content.neck_forward ? "bad" : "good"}">${content.neck_forward ? "거북목" : "정상"}</span>`;
+  const neckForward = isNeckForward(content);
+  const posture = neckForward == null ? "" :
+    `<span class="posture ${neckForward ? "bad" : "good"}">${neckForward ? "거북목" : "정상"}</span>`;
   const mcra = content.mCRA == null ? "" : `<strong>${content.mCRA}°</strong>`;
   row.innerHTML = `
     <div class="event-dot"></div>

@@ -88,3 +88,42 @@ async def test_existing_subscription_notification_uri_is_updated():
 
     assert [request.method for request in calls] == ["GET", "PUT"]
     assert b"https://analytics.example/api/v1/mobius/notifications" in calls[1].content
+
+
+@pytest.mark.asyncio
+async def test_subscription_lookup_retries_iotcoss_non_unique_error():
+    calls = []
+
+    def handler(request: httpx.Request):
+        calls.append(request)
+        if len(calls) < 3:
+            return httpx.Response(
+                400,
+                request=request,
+                text="Query did not return a unique result: 9 results were returned",
+            )
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "m2m:sub": {
+                    "nu": ["https://analytics.example/api/v1/mobius/notifications"]
+                }
+            },
+        )
+
+    settings = Settings(
+        mobius_notification_uri="https://analytics.example/api/v1/mobius/notifications",
+        mobius_read_retry_delay_seconds=0,
+    )
+    client = MobiusClient(settings)
+    await client.client.aclose()
+    client.client = httpx.AsyncClient(
+        base_url=settings.mobius_base_url,
+        transport=httpx.MockTransport(handler),
+    )
+
+    await client._ensure_subscription("postureCamera", "postureSamples")
+    await client.close()
+
+    assert [request.method for request in calls] == ["GET", "GET", "GET"]
