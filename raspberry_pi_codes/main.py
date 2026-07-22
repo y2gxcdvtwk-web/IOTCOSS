@@ -21,6 +21,7 @@ CAPTURE_INTERVAL = 0.05
 SAMPLE_UPLOAD_INTERVAL = float(os.getenv("SAMPLE_UPLOAD_INTERVAL", "1.0"))
 COMMAND_POLL_INTERVAL = float(os.getenv("COMMAND_POLL_INTERVAL", "2.0"))
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5.0"))
+NECK_FORWARD_THRESHOLD = 120.0
 
 # FastAPI analyticsServer
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://172.20.10.2:8000").rstrip("/")
@@ -34,6 +35,8 @@ CONTAINERS = {
     "samples": "postureSamples",
     "events": "postureEvents",
 }
+POSTURE_LIGHT_AE = "postureLight"
+POSTURE_LIGHT_COMMAND_CONTAINER = "command"
 # =========================
 # Mobius CSE
 # =========================
@@ -226,8 +229,8 @@ def calculate_posture(points):
 
 
         # 120도 기준 판단
-        if mcra <= 120:
-            result["neck_forward"] = True
+        # Confirmed rule: mCRA >= 120 degrees means forward-head posture.
+        result["neck_forward"] = bool(mcra >= NECK_FORWARD_THRESHOLD)
 
 
     except Exception as e:
@@ -238,10 +241,19 @@ def calculate_posture(points):
 # =========================
 # Save JSON
 # =========================
+def _json_default(value):
+    """Convert NumPy values produced by inference to JSON-compatible values."""
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def save_log(data):
     Path(LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
     with open(LOG_PATH,"a",encoding="utf-8") as f:
-        f.write(json.dumps(data,ensure_ascii=False)+"\n")
+        f.write(json.dumps(data, ensure_ascii=False, default=_json_default) + "\n")
 
 
 def _mobius_headers(resource_type=None):
@@ -261,8 +273,8 @@ def create_app_session():
         response = requests.post(
             f"{APP_BASE_URL}/api/v1/sessions",
             json={
-                "user_id": DEVICE_ID,
                 "metadata": {
+                    "device_id": DEVICE_ID,
                     "device": "Raspberry Pi",
                     "ae": AE_NAME,
                     "model": MODEL_PATH,
@@ -322,6 +334,50 @@ def send_to_mobius(container, data):
     except requests.RequestException as exc:
         print(f"[MOBIUS] {container} send failed: {exc}")
         return False
+
+
+def send_command(ae_name, container, data):
+    """Create a command CIN in a device command container."""
+    url = f"{MOBIUS_ROOT}/{ae_name}/{container}"
+    payload = {"m2m:cin": {"con": data}}
+    try:
+        response = requests.post(
+            url,
+            headers=_mobius_headers(4),
+            json=payload,
+            timeout=REQUEST_TIMEOUT,
+        )
+        if not response.ok:
+            print(
+                f"[MOBIUS] command {ae_name}/{container} rejected: "
+                f"HTTP {response.status_code}\n"
+                f"response={response.text[:1000]}\n"
+                f"payload={json.dumps(payload, ensure_ascii=False)}"
+            )
+            return False
+        print(f"[MOBIUS] command sent: {ae_name}/{container} {data['command']}")
+        return True
+    except requests.RequestException as exc:
+        print(f"[MOBIUS] command {ae_name}/{container} failed: {exc}")
+        return False
+
+
+def send_posture_light_command(session_id, posture, command=None):
+    """Send a posture state command using the fixed postureLight topology."""
+    if command is None:
+        command = "WARNING" if posture["neck_forward"] else "NORMAL"
+    return send_command(
+        POSTURE_LIGHT_AE,
+        POSTURE_LIGHT_COMMAND_CONTAINER,
+        {
+            "command": command,
+            "session_id": session_id,
+            "device_id": DEVICE_ID,
+            "neck_forward": posture["neck_forward"],
+            "mCRA": posture["mCRA"],
+            "issued_at": datetime.now().isoformat(),
+        },
+    )
 
 
 def poll_command(last_resource_name=None):
@@ -428,25 +484,28 @@ try:
             last_sample_upload = now
 
         # 자세 상태가 바뀐 순간만 event 컨테이너에 기록한다.
-        if (
-            previous_neck_forward is not None
-            and posture["neck_forward"] != previous_neck_forward
-        ):
-            send_to_mobius(
-                "events",
-                {
-                    "device_id": DEVICE_ID,
-                    "session_id": session_id,
-                    "occurred_at": measured_at,
-                    "event": (
-                        "neck_forward_detected"
-                        if posture["neck_forward"]
-                        else "posture_recovered"
-                    ),
-                    "neck_forward": posture["neck_forward"],
-                    "mCRA": posture["mCRA"],
-                },
-            )
+        posture_changed = (
+            previous_neck_forward is None
+            or posture["neck_forward"] != previous_neck_forward
+        )
+        if posture_changed:
+            send_posture_light_command(session_id, posture)
+            if previous_neck_forward is not None:
+                send_to_mobius(
+                    "events",
+                    {
+                        "device_id": DEVICE_ID,
+                        "session_id": session_id,
+                        "occurred_at": measured_at,
+                        "event": (
+                            "neck_forward_detected"
+                            if posture["neck_forward"]
+                            else "posture_recovered"
+                        ),
+                        "neck_forward": posture["neck_forward"],
+                        "mCRA": posture["mCRA"],
+                    },
+                )
         previous_neck_forward = posture["neck_forward"]
 
         if now - last_command_poll >= COMMAND_POLL_INTERVAL:
@@ -464,6 +523,8 @@ try:
 except KeyboardInterrupt:
     print("Stopped")
 finally:
+    # Close first; delayed Mobius status notifications retain this session_id.
+    close_app_session(session_id)
     send_to_mobius(
         "status",
         {
@@ -473,7 +534,11 @@ finally:
             "stopped_at": datetime.now().isoformat(),
         },
     )
-    close_app_session(session_id)
+    send_posture_light_command(
+        session_id,
+        {"neck_forward": False, "mCRA": 0},
+        command="OFF",
+    )
     process.terminate()
     cv2.destroyAllWindows()
     print("Camera closed")
