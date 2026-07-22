@@ -8,6 +8,7 @@ from app.models import (
     SessionCreate, SessionView,
 )
 from app.topology import ANALYTICS_AE, COMMAND_TARGETS, MOBIUS_TOPOLOGY
+from app.posture import normalize_posture_content
 
 router = APIRouter()
 
@@ -189,6 +190,7 @@ async def receive_notification(request: Request, payload: dict[str, Any] = Body(
     content = cin.get("con") if isinstance(cin, dict) else None
     if content is None:
         raise HTTPException(status_code=400, detail="Notification has no m2m:cin content")
+    content = normalize_posture_content(content)
 
     subscription_ref = str(signal.get("sur", "")).strip("/")
     parts = subscription_ref.split("/")
@@ -207,7 +209,9 @@ async def receive_notification(request: Request, payload: dict[str, Any] = Body(
     session = (
         await request.app.state.store.get_session(session_id) if session_id else None
     )
-    if not session or session["status"] != "active":
+    # Delayed status notifications can arrive after their explicit session was
+    # closed. Keep that known session instead of creating a new active session.
+    if not session:
         session = await request.app.state.store.get_latest_active_session()
     if not session:
         session = await request.app.state.store.create_session(

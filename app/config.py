@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     mobius_origin: str = "S"
     mobius_ae_id: str = ""
     mobius_timeout_seconds: float = 10
+    mobius_read_retry_attempts: int = 5
+    mobius_read_retry_delay_seconds: float = 0.25
     mobius_auto_register: bool = True
     mobius_api_key: str = "REDACTED_MOBIUS_API_KEY_00000000"
     mobius_lecture: str = "LCT_20260002"

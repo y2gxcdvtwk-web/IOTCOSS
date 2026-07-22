@@ -1,6 +1,7 @@
 from typing import Any
 
 from app.mobius import MobiusClient
+from app.posture import normalize_posture_content
 from app.store import SessionStore
 from app.topology import ANALYTICS_AE
 
@@ -49,7 +50,9 @@ class AnalyticsSynchronizer:
         if not isinstance(content, dict):
             return None
         if isinstance(content.get("event"), dict):
-            return {**content["event"], "mobius_resource_name": cin.get("rn")}
+            event = {**content["event"], "mobius_resource_name": cin.get("rn")}
+            event["content"] = normalize_posture_content(event.get("content"))
+            return event
         # Compatibility with events written before the canonical envelope was introduced.
         session_id = content.get("session_id")
         if not session_id:
@@ -59,7 +62,9 @@ class AnalyticsSynchronizer:
             "id": f"mobius:{cin.get('rn', cin.get('ri', 'unknown'))}",
             "session_id": session_id,
             "type": content.get("event_type", "sensor"),
-            "content": {key: value for key, value in content.items() if key not in excluded},
+            "content": normalize_posture_content(
+                {key: value for key, value in content.items() if key not in excluded}
+            ),
             "source": content.get("source", "mobius"),
             "created_at": cin.get("ct") or cin.get("lt"),
             "mobius_resource_name": cin.get("rn"),
