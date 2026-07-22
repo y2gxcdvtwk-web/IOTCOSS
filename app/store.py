@@ -211,3 +211,86 @@ class SessionStore:
             ).fetchall()
         return [self._event(row) for row in reversed(rows)]
 
+    async def find_recent_suggestion(
+        self, session_id: str, suggestion_type: str, cooldown_seconds: int
+    ) -> dict[str, Any] | None:
+        return await asyncio.to_thread(
+            self._find_recent_suggestion,
+            session_id,
+            suggestion_type,
+            cooldown_seconds,
+        )
+
+    def _find_recent_suggestion(
+        self, session_id: str, suggestion_type: str, cooldown_seconds: int
+    ) -> dict[str, Any] | None:
+        cutoff = (_now() - timedelta(seconds=cooldown_seconds)).isoformat()
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM events WHERE session_id=? AND type='suggestion' "
+                "AND created_at>=? ORDER BY created_at DESC",
+                (session_id, cutoff),
+            ).fetchall()
+        for row in rows:
+            event = self._event(row)
+            if isinstance(event["content"], dict) and event["content"].get("type") == suggestion_type:
+                return event
+        return None
+
+    async def find_suggestion(
+        self, session_id: str, suggestion_id: str
+    ) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._find_suggestion, session_id, suggestion_id)
+
+    def _find_suggestion(
+        self, session_id: str, suggestion_id: str
+    ) -> dict[str, Any] | None:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM events WHERE session_id=? AND type='suggestion' "
+                "ORDER BY created_at DESC",
+                (session_id,),
+            ).fetchall()
+        for row in rows:
+            event = self._event(row)
+            if isinstance(event["content"], dict) and event["content"].get("suggestion_id") == suggestion_id:
+                return event
+        return None
+
+    async def find_latest_actionable_suggestion(
+        self, session_id: str
+    ) -> dict[str, Any] | None:
+        return await asyncio.to_thread(
+            self._find_latest_actionable_suggestion, session_id
+        )
+
+    def _find_latest_actionable_suggestion(
+        self, session_id: str
+    ) -> dict[str, Any] | None:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM events WHERE session_id=? AND type='suggestion' "
+                "ORDER BY created_at DESC",
+                (session_id,),
+            ).fetchall()
+        for row in rows:
+            event = self._event(row)
+            content = event["content"]
+            if (
+                isinstance(content, dict)
+                and content.get("status") in {"proposed", "delivered"}
+                and isinstance(content.get("action"), dict)
+            ):
+                return event
+        return None
+
+    async def update_event_content(self, event_id: str, content: Any) -> None:
+        await asyncio.to_thread(self._update_event_content, event_id, content)
+
+    def _update_event_content(self, event_id: str, content: Any) -> None:
+        with self._connect() as db:
+            db.execute(
+                "UPDATE events SET content=? WHERE id=?",
+                (json.dumps(content, ensure_ascii=False), event_id),
+            )
+

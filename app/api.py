@@ -66,9 +66,17 @@ async def close_session(session_id: str, request: Request):
     session = await request.app.state.store.close_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    result, _ = await request.app.state.suggestion_engine.analyze(
+        session_id, deliver=False
+    )
+    await request.app.state.store.add_event(
+        session_id, "analysis", result.model_dump(), "ai"
+    )
     try:
         await request.app.state.mobius.create_content_instance(
-            ANALYTICS_AE, "sessionSummaries", session
+            ANALYTICS_AE,
+            "sessionSummaries",
+            {**session, "analysis": result.model_dump()},
         )
         await request.app.state.mobius.create_content_instance(
             ANALYTICS_AE, "currentSession", session
@@ -118,28 +126,21 @@ async def list_events(session_id: str, request: Request, limit: int = Query(100,
 
 @router.post("/sessions/{session_id}/analysis", response_model=AnalysisResult)
 async def analyze(session_id: str, payload: AnalysisRequest, request: Request):
-    await _existing_session_or_404(request, session_id)
-    parts: list[str] = []
-    if payload.include_session_events:
-        events = await request.app.state.store.list_events(session_id, 200)
-        parts.extend(str(event["content"]) for event in events)
-    if payload.text:
-        parts.append(payload.text)
-    if not parts:
-        raise HTTPException(status_code=422, detail="No content to analyze")
-    result = await request.app.state.analyzer.analyze("\n".join(parts))
+    session = await _existing_session_or_404(request, session_id)
     try:
-        await request.app.state.mobius.create_content_instance(
-            ANALYTICS_AE,
-            "suggestions",
-            {"session_id": session_id, **result.model_dump()},
+        result, suggestion_event = await request.app.state.suggestion_engine.analyze(
+            session_id, deliver=session["status"] == "active"
         )
-    except MobiusError:
-        pass
+    except MobiusError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     event = await request.app.state.store.add_event(
         session_id, "analysis", result.model_dump(), "ai"
     )
     await request.app.state.realtime.broadcast(session_id, {"event": "analysis", "data": event})
+    if suggestion_event:
+        await request.app.state.realtime.broadcast(
+            session_id, {"event": "suggestion", "data": suggestion_event}
+        )
     return result
 
 
@@ -242,6 +243,28 @@ async def receive_notification(request: Request, payload: dict[str, Any] = Body(
     await request.app.state.realtime.broadcast(
         session["id"], {"event": "mobius-notification", "data": event}
     )
+    if source == "postureCamera/postureSamples" and session["status"] == "active":
+        try:
+            _, suggestion_event = await request.app.state.suggestion_engine.analyze(
+                session["id"], automatic=True
+            )
+            if suggestion_event:
+                await request.app.state.realtime.broadcast(
+                    session["id"], {"event": "suggestion", "data": suggestion_event}
+                )
+        except MobiusError:
+            pass
+    elif source == "deskInterface/buttonEvents" and isinstance(content, dict):
+        try:
+            command = await request.app.state.suggestion_engine.handle_button_event(
+                {**content, "session_id": content.get("session_id") or session["id"]}
+            )
+            if command:
+                await request.app.state.realtime.broadcast(
+                    session["id"], {"event": "motor-command", "data": command}
+                )
+        except MobiusError:
+            pass
     return {}
 
 

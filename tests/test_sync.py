@@ -60,6 +60,48 @@ async def test_restore_rebuilds_sqlite_cache_from_ae(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_restore_preserves_structured_suggestion_for_cooldown(tmp_path: Path):
+    session = {
+        "id": "session-1",
+        "user_id": "device",
+        "status": "active",
+        "metadata": {},
+        "created_at": "2026-07-22T00:00:00+00:00",
+        "updated_at": "2026-07-22T00:00:00+00:00",
+        "expires_at": "2027-07-22T00:00:00+00:00",
+    }
+    suggestion = {
+        "suggestion_id": "suggestion-1",
+        "session_id": "session-1",
+        "type": "POSTURE_CORRECTION",
+        "status": "delivered",
+    }
+
+    class FakeMobius:
+        async def list_content_instances(self, ae_name, container):
+            return {
+                "currentSession": [{"con": session}],
+                "sessionSummaries": [],
+                "sessionEvents": [],
+                "suggestions": [
+                    {
+                        "rn": "suggestion-cin-1",
+                        "ct": "2026-07-22T00:01:00+00:00",
+                        "con": suggestion,
+                    }
+                ],
+            }[container]
+
+    store = SessionStore(tmp_path / "cache.db", 86_400)
+    await store.initialize()
+    await AnalyticsSynchronizer(FakeMobius(), store).restore()
+    events = await store.list_events("session-1")
+
+    assert events[0]["type"] == "suggestion"
+    assert events[0]["content"]["suggestion_id"] == "suggestion-1"
+
+
+@pytest.mark.asyncio
 async def test_existing_subscription_notification_uri_is_updated():
     calls = []
 
