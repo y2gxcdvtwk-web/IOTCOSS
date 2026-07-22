@@ -79,6 +79,28 @@ class SessionStore:
             )
         return item
 
+    async def upsert_session(self, item: dict[str, Any]) -> bool:
+        return await asyncio.to_thread(self._upsert_session, item)
+
+    def _upsert_session(self, item: dict[str, Any]) -> bool:
+        required = {
+            "id", "user_id", "status", "metadata", "created_at", "updated_at", "expires_at"
+        }
+        if not required <= item.keys():
+            return False
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO sessions VALUES (:id,:user_id,:status,:metadata,:created_at,:updated_at,:expires_at)
+                ON CONFLICT(id) DO UPDATE SET
+                    user_id=excluded.user_id, status=excluded.status,
+                    metadata=excluded.metadata, created_at=excluded.created_at,
+                    updated_at=excluded.updated_at, expires_at=excluded.expires_at
+                """,
+                {**item, "metadata": json.dumps(item["metadata"], ensure_ascii=False)},
+            )
+        return True
+
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._get_session, session_id)
 
@@ -155,6 +177,27 @@ class SessionStore:
                 (_now().isoformat(), (_now() + timedelta(seconds=self.ttl_seconds)).isoformat(), session_id),
             )
         return item
+
+    async def upsert_event(self, item: dict[str, Any]) -> bool:
+        return await asyncio.to_thread(self._upsert_event, item)
+
+    def _upsert_event(self, item: dict[str, Any]) -> bool:
+        required = {"id", "session_id", "type", "content", "source", "created_at"}
+        if not required <= item.keys() or not self._get_session(item["session_id"]):
+            return False
+        normalized = {**item, "mobius_resource_name": item.get("mobius_resource_name")}
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO events VALUES (:id,:session_id,:type,:content,:source,:created_at,:mobius_resource_name)
+                ON CONFLICT(id) DO UPDATE SET
+                    content=excluded.content, source=excluded.source,
+                    created_at=excluded.created_at,
+                    mobius_resource_name=excluded.mobius_resource_name
+                """,
+                {**normalized, "content": json.dumps(normalized["content"], ensure_ascii=False)},
+            )
+        return True
 
     async def list_events(self, session_id: str, limit: int = 100) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_events, session_id, limit)

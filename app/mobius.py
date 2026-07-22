@@ -55,10 +55,16 @@ class MobiusClient:
             raise MobiusError(f"Mobius connection failed: {exc}") from exc
 
     async def ensure_structure(self) -> None:
+        await self.ensure_analytics_structure()
+        await self.ensure_subscriptions()
+
+    async def ensure_analytics_structure(self) -> None:
         analytics = "analyticsServer"
         await self._ensure_ae(analytics)
         for container in MOBIUS_TOPOLOGY[analytics].containers:
             await self._ensure_container(analytics, container)
+
+    async def ensure_subscriptions(self) -> None:
         if self.settings.mobius_notification_uri:
             for ae_name, container in SUBSCRIPTION_SOURCES:
                 await self._require_container(ae_name, container)
@@ -106,12 +112,39 @@ class MobiusClient:
                 json={
                     "m2m:sub": {
                         "rn": name,
+                        "enc": {"net": [3]},
                         "nu": [self.settings.mobius_notification_uri],
                         "nct": 2,
                     }
                 },
             )
+        elif response.status_code < 400:
+            subscription = response.json().get("m2m:sub", {})
+            expected = [self.settings.mobius_notification_uri]
+            if subscription.get("nu") != expected:
+                response = await self._request(
+                    "PUT",
+                    path,
+                    headers={**self._headers(), "Content-Type": "application/json"},
+                    json={"m2m:sub": {"nu": expected}},
+                )
         self._raise(response, f"subscription {ae_name}/{container}/{name}")
+
+    async def list_content_instances(
+        self, ae_name: str, container: str
+    ) -> list[dict[str, Any]]:
+        response = await self._request(
+            "GET",
+            f"/{ae_name}/{container}?rcn=4",
+            headers=self._headers(),
+        )
+        self._raise(response, f"retrieve {ae_name}/{container}")
+        body = response.json()
+        parent = body.get("m2m:cnt", body)
+        instances = parent.get("m2m:cin", []) if isinstance(parent, dict) else []
+        if isinstance(instances, dict):
+            instances = [instances]
+        return [item for item in instances if isinstance(item, dict)]
 
     async def create_content_instance(
         self, ae_name: str, container: str, content: Any
