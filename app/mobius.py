@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 from uuid import uuid4
 
@@ -104,7 +105,7 @@ class MobiusClient:
     async def _ensure_subscription(self, ae_name: str, container: str) -> None:
         name = self.settings.mobius_subscription_name
         path = f"/{ae_name}/{container}/{name}"
-        response = await self._request("GET", path, headers=self._headers())
+        response = await self._get_subscription(path)
         if response.status_code == 404:
             response = await self._request(
                 "POST",
@@ -129,6 +130,23 @@ class MobiusClient:
                     json={"m2m:sub": {"nu": expected}},
                 )
         self._raise(response, f"subscription {ae_name}/{container}/{name}")
+
+    async def _get_subscription(self, path: str) -> httpx.Response:
+        """Retry the intermittent non-unique-result error from the IOTCOSS proxy."""
+        response: httpx.Response | None = None
+        for attempt in range(self.settings.mobius_read_retry_attempts):
+            response = await self._request("GET", path, headers=self._headers())
+            if not (
+                response.status_code == 400
+                and "Query did not return a unique result" in response.text
+            ):
+                return response
+            if attempt + 1 < self.settings.mobius_read_retry_attempts:
+                await asyncio.sleep(
+                    self.settings.mobius_read_retry_delay_seconds * (attempt + 1)
+                )
+        assert response is not None
+        return response
 
     async def list_content_instances(
         self, ae_name: str, container: str

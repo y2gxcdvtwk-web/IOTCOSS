@@ -173,7 +173,8 @@ class SessionStore:
                 {**item, "content": json.dumps(content, ensure_ascii=False)},
             )
             db.execute(
-                "UPDATE sessions SET updated_at=?, expires_at=? WHERE id=?",
+                "UPDATE sessions SET updated_at=?, expires_at=? "
+                "WHERE id=? AND status='active'",
                 (_now().isoformat(), (_now() + timedelta(seconds=self.ttl_seconds)).isoformat(), session_id),
             )
         return item
