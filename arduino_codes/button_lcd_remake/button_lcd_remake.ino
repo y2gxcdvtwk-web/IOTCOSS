@@ -133,6 +133,7 @@ String generateEventId();
 //==================================================
 
 void setup(){
+    Serial.println("===== BOOT =====");
     Serial.begin(115200);
 
     pinMode(BTN_KICKOFF_PIN,INPUT_PULLUP);
@@ -321,8 +322,9 @@ String generateEventId(){
 //==================================================
 
 bool sendButtonEvent(const char* button){
+    Serial.println("1");
     WiFiSSLClient client;
-
+    Serial.println("2");
     Serial.println("--------------------");
     Serial.println("POST Button Event");
 
@@ -331,6 +333,7 @@ bool sendButtonEvent(const char* button){
         Serial.println("SSL Connect Failed");
         return false;
     }
+    Serial.println("3");
 
     client.setTimeout(3000);
 
@@ -357,6 +360,7 @@ bool sendButtonEvent(const char* button){
     con["pressedAt"] = nullptr;
     con["uptimeMs"] = millis();
 
+    Serial.println("4");
     String body;
     serializeJson(doc, body);
 
@@ -401,6 +405,7 @@ bool sendButtonEvent(const char* button){
 
     client.print(body);
 
+    Serial.println("5");
     //--------------------------------------------------
     // HTTP Status
     //--------------------------------------------------
@@ -430,6 +435,7 @@ bool sendButtonEvent(const char* button){
     // Read Body
     //--------------------------------------------------
 
+    Serial.println("6");
     String response;
 
     response.reserve(512);
@@ -452,6 +458,7 @@ bool sendButtonEvent(const char* button){
         Serial.println("POST Failed");
     }
 
+    Serial.println("7");
     return success;
 }
 void updateLCD(){
