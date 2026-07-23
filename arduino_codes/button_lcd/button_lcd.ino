@@ -29,7 +29,6 @@ const int BTN_KICKOFF_PIN = 2; // A버튼 (시작/종료)
 const int BTN_ACCEPT_PIN  = 3; // B버튼 (수락)
 
 LiquidCrystal_I2C lcd(0x27, 16, 2); // I2C 주소 0x27 (출력 안될 시 0x3F 확인)
-WiFiSSLClient client;
 
 // ==========================================
 // 3. 상태 관리 변수
@@ -76,10 +75,15 @@ String generateEventId() {
 
 // buttonEvents CIN 생성 (POST)
 void sendButtonEvent(const char* buttonType) {
+WiFiSSLClient client;
   if (!client.connect(MOBIUS_HOST, MOBIUS_PORT)) {
     Serial.println("Connection failed for POST buttonEvent");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+    Serial.print("RSSI: ");
+    Serial.println(WiFi.RSSI());
     return;
-  }
+}
   client.setTimeout(20);
   StaticJsonDocument<512> doc;
   JsonObject cin = doc.createNestedObject("m2m:cin");
@@ -156,12 +160,16 @@ void checkButtons() {
 
 // lcdCommand/latest Polling (GET)
 void pollLcdCommand() {
+WiFiSSLClient client;
   Serial.println("1");
-
-  if (!client.connect(MOBIUS_HOST, MOBIUS_PORT)) {
-      Serial.println("connect fail");
-      return;
-  }
+if (!client.connect(MOBIUS_HOST, MOBIUS_PORT)) {
+    Serial.println("SSL connect fail");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+    Serial.print("RSSI: ");
+    Serial.println(WiFi.RSSI());
+    return;
+}
 
   Serial.println("2");
 
@@ -247,8 +255,8 @@ void pollLcdCommand() {
 void setup() {
   Serial.begin(115200);
   
-  pinMode(BTN_KICKOFF_PIN, INPUT);
-  pinMode(BTN_ACCEPT_PIN, INPUT);
+  pinMode(BTN_KICKOFF_PIN, INPUT_PULLUP);
+  pinMode(BTN_ACCEPT_PIN, INPUT_PULLUP);
 
   lcd.init();
   lcd.backlight();
@@ -256,6 +264,10 @@ void setup() {
   lcd.print("Connecting WiFi");
 
   connectWiFi();
+    Serial.print("Firmware Version : ");
+    Serial.println(WiFi.firmwareVersion());
+    Serial.print("Latest Version   : ");
+    Serial.println(WIFI_FIRMWARE_LATEST_VERSION);
 
   // bootId 임의 생성
   randomSeed(analogRead(0));
@@ -271,6 +283,10 @@ void setup() {
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     connectWiFi();
+    Serial.print("Firmware Version : ");
+    Serial.println(WiFi.firmwareVersion());
+    Serial.print("Latest Version   : ");
+    Serial.println(WIFI_FIRMWARE_LATEST_VERSION);
   }
 
   // 1. 버튼 입력 감지
