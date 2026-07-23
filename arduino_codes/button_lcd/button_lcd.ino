@@ -7,7 +7,7 @@
 // ==========================================
 // 1. 네트워크 및 Mobius 설정
 // ==========================================
-char ssid[] = "ADDHD";         // 사용하는 Wi-Fi 이름
+char ssid[] = "iPhone";         // 사용하는 Wi-Fi 이름
 char pass[] = "PASSWORD";     // 사용하는 Wi-Fi 비밀번호
 
 const char MOBIUS_HOST[] = "platform.iotcoss.ac.kr";
