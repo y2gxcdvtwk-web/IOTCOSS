@@ -66,10 +66,15 @@ class MobiusClient:
             await self._ensure_container(analytics, container)
 
     async def ensure_subscriptions(self) -> None:
-        if self.settings.mobius_notification_uri:
-            for ae_name, container in SUBSCRIPTION_SOURCES:
-                await self._require_container(ae_name, container)
-                await self._ensure_subscription(ae_name, container)
+        if not self.settings.mobius_notification_uri:
+            raise MobiusError(
+                "MOBIUS_NOTIFICATION_URI is not configured. Set it to the public "
+                "HTTPS URL for /api/v1/mobius/notifications before reconciling "
+                "Mobius subscriptions."
+            )
+        for ae_name, container in SUBSCRIPTION_SOURCES:
+            await self._require_container(ae_name, container)
+            await self._ensure_subscription(ae_name, container)
 
     async def _ensure_ae(self, ae_name: str) -> None:
         response = await self._request("GET", f"/{ae_name}", headers=self._headers())

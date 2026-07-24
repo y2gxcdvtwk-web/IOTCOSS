@@ -42,6 +42,34 @@ async def _existing_session_or_404(request: Request, session_id: str) -> dict:
     return session
 
 
+def _is_start_button_event(source: str, content: Any) -> bool:
+    if source != "deskInterface/buttonEvents" or not isinstance(content, dict):
+        return False
+    action = str(content.get("action") or "").lower()
+    button = str(content.get("button") or "").upper()
+    return action == "start" or (button in {"A", "START", "KICKOFF"} and action in {"", "start"})
+
+
+def _is_stop_button_event(source: str, content: Any) -> bool:
+    if source != "deskInterface/buttonEvents" or not isinstance(content, dict):
+        return False
+    action = str(content.get("action") or "").lower()
+    button = str(content.get("button") or "").upper()
+    return button in {"A", "STOP", "END"} and action in {"stop", "end", "close"}
+
+
+def _is_sessionless_device_status(source: str, content: Any) -> bool:
+    if not isinstance(content, dict):
+        return False
+    if content.get("session_id"):
+        return False
+    return source in {
+        "postureCamera/status",
+        "deskMotor/status",
+        "postureLight/status",
+    }
+
+
 @router.get("/sessions", response_model=list[SessionView])
 async def list_sessions(
     request: Request,
@@ -53,12 +81,48 @@ async def list_sessions(
     return await request.app.state.store.list_sessions(limit, session_status)
 
 
+@router.delete("/sessions")
+async def delete_completed_sessions(
+    request: Request,
+    confirm: bool = Query(False),
+):
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Deletion confirmation is required")
+    result = await request.app.state.store.delete_completed_session_records(
+        request.app.state.suggestion_engine.moving_session_ids()
+    )
+    return {
+        **result,
+        "detail": "Completed session records deleted",
+    }
+
+
 @router.get("/sessions/{session_id}", response_model=SessionView)
 async def get_session(session_id: str, request: Request):
     session = await request.app.state.store.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return session
+
+
+@router.delete("/sessions/{session_id}/record")
+async def delete_session_record(session_id: str, request: Request):
+    session = await request.app.state.store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session["status"] == "active":
+        raise HTTPException(status_code=409, detail="Active session cannot be deleted")
+    desk_position = request.app.state.suggestion_engine.desk_position_for_session(session_id)
+    if desk_position in {"MOVING_UP", "MOVING_DOWN"}:
+        raise HTTPException(status_code=409, detail="Moving session cannot be deleted")
+    deleted = await request.app.state.store.delete_session_record(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "session_id": session_id,
+        "deleted": True,
+        "detail": "Session record deleted",
+    }
 
 
 @router.delete("/sessions/{session_id}", response_model=SessionView)
@@ -205,13 +269,57 @@ async def receive_notification(request: Request, payload: dict[str, Any] = Body(
         else "deviceEvent"
     )
     source = f"{ae_name}/{container}" if ae_index >= 0 else "mobius"
-
-    session_id = content.get("session_id") if isinstance(content, dict) else None
-    session = (
-        await request.app.state.store.get_session(session_id) if session_id else None
+    print(
+        "[MOBIUS]\n"
+        f"source={source}\n"
+        f"sur={subscription_ref}\n"
+        f"content={content}"
     )
-    # Delayed status notifications can arrive after their explicit session was
-    # closed. Keep that known session instead of creating a new active session.
+
+    start_button_event = _is_start_button_event(source, content)
+    stop_button_event = _is_stop_button_event(source, content)
+    session_id = content.get("session_id") if isinstance(content, dict) else None
+    session = None
+    if session_id:
+        session = await request.app.state.store.get_session(session_id)
+    button_event = source == "deskInterface/buttonEvents" and isinstance(content, dict)
+    if _is_sessionless_device_status(source, content):
+        print(f"Ignoring sessionless device status: source={source}")
+        return {}
+    if start_button_event:
+        previous_session = session if session and session["status"] == "active" else None
+        if not previous_session:
+            previous_session = await request.app.state.store.get_latest_active_session()
+        if previous_session:
+            await request.app.state.store.close_session(previous_session["id"])
+            print(
+                "Closed previous active session before A/start: "
+                f"{previous_session['id']}"
+            )
+        session = await request.app.state.store.create_session(
+            "desk-interface",
+            {
+                "origin": source,
+                "device_id": content.get("device_id") if isinstance(content, dict) else None,
+                "started_by": "button_A",
+                "previous_session_id": previous_session["id"] if previous_session else None,
+            },
+        )
+        print(f"Created new session from A/start: {session['id']}")
+        try:
+            await request.app.state.mobius.create_content_instance(
+                ANALYTICS_AE, "currentSession", session
+            )
+        except MobiusError:
+            pass
+    if stop_button_event and (not session or session["status"] != "active"):
+        session = await request.app.state.store.get_latest_active_session()
+    # Delayed non-start status notifications can arrive after their explicit
+    # session was closed. Keep that known session instead of creating a new one.
+    if button_event and not start_button_event and not stop_button_event and session and session["status"] != "active":
+        session = await request.app.state.store.get_latest_active_session()
+    if stop_button_event and not session:
+        return {}
     if not session:
         session = await request.app.state.store.get_latest_active_session()
     if not session:
@@ -224,6 +332,8 @@ async def receive_notification(request: Request, payload: dict[str, Any] = Body(
             )
         except MobiusError:
             pass
+    if button_event and isinstance(content, dict):
+        content = {**content, "session_id": session["id"]}
 
     event = await request.app.state.store.add_event(
         session["id"],
@@ -254,17 +364,45 @@ async def receive_notification(request: Request, payload: dict[str, Any] = Body(
                 )
         except MobiusError:
             pass
+    elif source in {"deskMotor/status", "deskMotor/motorEvents"} and isinstance(content, dict):
+        await request.app.state.suggestion_engine.handle_motor_status(
+            content,
+            session["id"],
+        )
     elif source == "deskInterface/buttonEvents" and isinstance(content, dict):
+        command = None
         try:
             command = await request.app.state.suggestion_engine.handle_button_event(
-                {**content, "session_id": content.get("session_id") or session["id"]}
+                {
+                    **content,
+                    "session_id": session["id"],
+                    "_mobius_resource_name": cin.get("rn") if isinstance(cin, dict) else None,
+                }
             )
             if command:
-                await request.app.state.realtime.broadcast(
-                    session["id"], {"event": "motor-command", "data": command}
+                event_name = (
+                    "motor-command"
+                    if command.get("device") == "deskMotor" or command.get("action") == "set_height"
+                    else "device-command"
                 )
-        except MobiusError:
-            pass
+                await request.app.state.realtime.broadcast(
+                    session["id"], {"event": event_name, "data": command}
+                )
+        except MobiusError as exc:
+            print(f"Button command delivery failed: {exc}")
+        if stop_button_event:
+            closed_session = await request.app.state.store.close_session(session["id"])
+            if closed_session:
+                try:
+                    await request.app.state.mobius.create_content_instance(
+                        ANALYTICS_AE, "currentSession", closed_session
+                    )
+                except MobiusError:
+                    pass
+                await request.app.state.realtime.broadcast(
+                    session["id"],
+                    {"event": "session-closed", "data": closed_session},
+                )
     return {}
 
 

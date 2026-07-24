@@ -23,6 +23,7 @@
         <h2>세션 목록</h2>
         <span id="sessionCount" class="count">0</span>
       </div>
+      <button id="clearCompletedSessions" class="secondary danger full-width">테스트 세션 전체 삭제</button>
       <div class="filters" role="group" aria-label="세션 필터">
         <button class="filter active" data-status="">전체</button>
         <button class="filter" data-status="active">진행 중</button>
@@ -52,22 +53,23 @@
 
         <div class="metrics">
           <div class="metric"><span>수집 데이터</span><strong id="eventCount">0</strong></div>
-          <div class="metric"><span>최근 mCRA</span><strong id="latestMcra">—</strong></div>
-          <div class="metric"><span>최근 자세</span><strong id="latestPosture">—</strong></div>
+          <div class="metric"><span>최근 mCRA</span><strong id="latestMcra">--</strong></div>
+          <div class="metric"><span>최근 자세</span><strong id="latestPosture">--</strong></div>
         </div>
 
         <section id="analysisPanel" class="analysis hidden">
-          <span class="eyebrow">AI ANALYSIS</span>
-          <h3 id="analysisSummary"></h3>
+          <span class="eyebrow">AI SUMMARY</span>
+          <h3>분석 결과</h3>
+          <p id="analysisSummary"></p>
           <ul id="recommendations"></ul>
         </section>
 
         <div class="timeline-heading">
-          <h3>자동 수집 타임라인</h3>
-          <span id="liveState" class="live-state">실시간 연결</span>
+          <h3>이벤트 타임라인</h3>
+          <span id="liveState" class="live-state">연결 대기</span>
         </div>
         <div id="events" class="timeline"></div>
-        <div id="emptyEvents" class="empty hidden">아직 수집된 데이터가 없습니다.</div>
+        <div id="emptyEvents" class="empty hidden">이벤트가 없습니다.</div>
       </div>
     </section>
   </section>

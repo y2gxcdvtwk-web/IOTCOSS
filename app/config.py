@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     posture_suggestion_cooldown_seconds: int = 180
     posture_min_samples: int = 5
     desk_standing_height_cm: int = 125
+    desk_sitting_height_cm: int = 75
+    desk_assume_down_on_startup: bool = True
 
     ai_provider: str = "local"
     ai_model: str = "gpt-4.1-mini"

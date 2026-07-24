@@ -46,6 +46,14 @@ def create_app() -> FastAPI:
 
                 app.state.subscription_status = {"state": "pending"}
                 subscription_task = asyncio.create_task(delayed_subscription_reconcile())
+            else:
+                app.state.subscription_status = {
+                    "state": "error",
+                    "detail": (
+                        "MOBIUS_NOTIFICATION_URI is not configured; Mobius cannot "
+                        "deliver subscription notifications to FastAPI."
+                    ),
+                }
         yield
         if subscription_task and not subscription_task.done():
             subscription_task.cancel()

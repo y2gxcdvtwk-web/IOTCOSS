@@ -42,6 +42,9 @@ class SessionStore:
                     FOREIGN KEY(session_id) REFERENCES sessions(id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, created_at);
+                CREATE TABLE IF NOT EXISTS deleted_sessions (
+                    session_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -89,6 +92,8 @@ class SessionStore:
         if not required <= item.keys():
             return False
         with self._connect() as db:
+            if self._is_session_deleted(db, item["id"]):
+                return False
             db.execute(
                 """
                 INSERT INTO sessions VALUES (:id,:user_id,:status,:metadata,:created_at,:updated_at,:expires_at)
@@ -150,6 +155,102 @@ class SessionStore:
             db.execute("UPDATE sessions SET status='closed', updated_at=? WHERE id=?", (now, session_id))
             return self._session(db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone())
 
+    async def delete_session_record(self, session_id: str) -> bool:
+        return await asyncio.to_thread(self._delete_session_record, session_id)
+
+    def _delete_session_record(self, session_id: str) -> bool:
+        with self._connect() as db:
+            try:
+                db.execute("BEGIN")
+                session = db.execute(
+                    "SELECT id FROM sessions WHERE id=?",
+                    (session_id,),
+                ).fetchone()
+                if not session:
+                    db.execute("ROLLBACK")
+                    return False
+                db.execute("DELETE FROM events WHERE session_id=?", (session_id,))
+                db.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+                self._mark_session_deleted(db, session_id)
+                db.execute("COMMIT")
+                return True
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+
+    async def delete_completed_session_records(
+        self,
+        excluded_session_ids: set[str] | None = None,
+    ) -> dict[str, int]:
+        return await asyncio.to_thread(
+            self._delete_completed_session_records,
+            excluded_session_ids or set(),
+        )
+
+    def _delete_completed_session_records(
+        self,
+        excluded_session_ids: set[str],
+    ) -> dict[str, int]:
+        with self._connect() as db:
+            try:
+                db.execute("BEGIN")
+                rows = db.execute(
+                    "SELECT id FROM sessions WHERE status <> 'active'"
+                ).fetchall()
+                session_ids = [
+                    row["id"] for row in rows if row["id"] not in excluded_session_ids
+                ]
+                deleted_events = 0
+                for session_id in session_ids:
+                    cursor = db.execute(
+                        "DELETE FROM events WHERE session_id=?",
+                        (session_id,),
+                    )
+                    deleted_events += cursor.rowcount
+                deleted_sessions = 0
+                for session_id in session_ids:
+                    deleted_sessions += db.execute(
+                        "DELETE FROM sessions WHERE id=?",
+                        (session_id,),
+                    ).rowcount
+                    self._mark_session_deleted(db, session_id)
+                db.execute("COMMIT")
+                return {
+                    "deleted_sessions": deleted_sessions,
+                    "deleted_events": deleted_events,
+                    "kept_active_sessions": self._count_active_sessions(db),
+                    "kept_moving_sessions": len(excluded_session_ids),
+                }
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+
+    @staticmethod
+    def _count_active_sessions(db: sqlite3.Connection) -> int:
+        row = db.execute(
+            "SELECT COUNT(*) AS count FROM sessions WHERE status='active'"
+        ).fetchone()
+        return int(row["count"] if row else 0)
+
+    @staticmethod
+    def _is_session_deleted(db: sqlite3.Connection, session_id: str) -> bool:
+        row = db.execute(
+            "SELECT 1 FROM deleted_sessions WHERE session_id=?",
+            (session_id,),
+        ).fetchone()
+        return row is not None
+
+    @staticmethod
+    def _mark_session_deleted(db: sqlite3.Connection, session_id: str) -> None:
+        db.execute(
+            """
+            INSERT INTO deleted_sessions(session_id, deleted_at)
+            VALUES (?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET deleted_at=excluded.deleted_at
+            """,
+            (session_id, _now().isoformat()),
+        )
+
     async def add_event(
         self, session_id: str, event_type: str, content: Any, source: str,
         mobius_resource_name: str | None = None,
@@ -168,6 +269,8 @@ class SessionStore:
             "mobius_resource_name": mobius_resource_name,
         }
         with self._connect() as db:
+            if self._is_session_deleted(db, session_id):
+                return item
             db.execute(
                 "INSERT INTO events VALUES (:id,:session_id,:type,:content,:source,:created_at,:mobius_resource_name)",
                 {**item, "content": json.dumps(content, ensure_ascii=False)},
@@ -188,6 +291,8 @@ class SessionStore:
             return False
         normalized = {**item, "mobius_resource_name": item.get("mobius_resource_name")}
         with self._connect() as db:
+            if self._is_session_deleted(db, item["session_id"]):
+                return False
             db.execute(
                 """
                 INSERT INTO events VALUES (:id,:session_id,:type,:content,:source,:created_at,:mobius_resource_name)
