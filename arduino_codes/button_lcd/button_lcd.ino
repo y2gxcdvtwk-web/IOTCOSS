@@ -354,7 +354,7 @@ void fallbackLcdLines(
 }
 
 bool postButtonEvent(JsonDocument& content) {
-  StaticJsonDocument<2048> payload;
+  StaticJsonDocument<1024> payload;
   payload["m2m:cin"]["con"].set(content.as<JsonVariant>());
 
   String body;
@@ -542,7 +542,7 @@ bool sendStartEvent() {
     return false;
   }
 
-  StaticJsonDocument<768> content;
+  StaticJsonDocument<512> content;
   content["device_id"] = DEVICE_ID;
   content["button"] = "A";
   content["action"] = "start";
@@ -565,7 +565,7 @@ bool sendStopEvent() {
     return false;
   }
 
-  StaticJsonDocument<768> content;
+  StaticJsonDocument<512> content;
   content["device_id"] = DEVICE_ID;
   content["button"] = "A";
   content["action"] = "stop";
@@ -591,7 +591,7 @@ bool sendAcceptEvent() {
     return false;
   }
 
-  StaticJsonDocument<1024> content;
+  StaticJsonDocument<768> content;
   content["device_id"] = DEVICE_ID;
   content["button"] = "B";
   content["action"] = "accept";
@@ -715,5 +715,7 @@ void loop() {
   manageWiFi();
   expireTemporaryMessage();
   checkButtons();
-  pollLcdCommand();
+  if (sessionRunning) {
+    pollLcdCommand();
+  }
 }
