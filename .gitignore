@@ -6,5 +6,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 .env
+arduino_secrets.h
 data/
 *.egg-info/

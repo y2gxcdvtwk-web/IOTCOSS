@@ -51,9 +51,7 @@ MOBIUS_ROOT = os.getenv(
 MOBIUS_HEADERS = {
     "accept": "*/*",
     "X-M2M-Origin": os.getenv("MOBIUS_ORIGIN", "S"),
-    "X-API-KEY": os.getenv(
-        "MOBIUS_API_KEY", "REDACTED_MOBIUS_API_KEY_00000000"
-    ),
+    "X-API-KEY": os.getenv("MOBIUS_API_KEY", ""),
     "X-AUTH-CUSTOM-LECTURE": os.getenv("MOBIUS_LECTURE", "LCT_20260002"),
     "X-AUTH-CUSTOM-CREATOR": os.getenv("MOBIUS_CREATOR", "sjuADDHD"),
     "Accept": "application/json"

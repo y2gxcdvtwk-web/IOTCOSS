@@ -4,18 +4,22 @@
 #include <LiquidCrystal_I2C.h>
 #include <ArduinoJson.h>
 
+#if __has_include("arduino_secrets.h")
+#include "arduino_secrets.h"
+#else
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define MOBIUS_API_KEY "YOUR_MOBIUS_API_KEY"
+#endif
+
 //==================================================
 // Network
 //==================================================
-
-char ssid[] = "ADDHD";
-char pass[] = "PASSWORD";
 
 const char MOBIUS_HOST[] = "platform.iotcoss.ac.kr";
 const int MOBIUS_PORT = 443;
 const char MOBIUS_BASE_PATH[] = "/api/proxy/swagger/Mobius";
 
-const char API_KEY[] = "REDACTED_MOBIUS_API_KEY_00000000";
 const char CUSTOM_LECTURE[] = "LCT_20260002";
 const char CUSTOM_CREATOR[] = "sjuADDHD";
 
@@ -282,7 +286,7 @@ void connectWiFi(){
 
     Serial.println("Connecting WiFi...");
 
-    while (WiFi.begin(ssid, pass) != WL_CONNECTED)
+    while (WiFi.begin(WIFI_SSID, WIFI_PASSWORD) != WL_CONNECTED)
     {
         Serial.println("Retry...");
         delay(3000);
@@ -384,7 +388,7 @@ bool sendButtonEvent(const char* button){
 
     client.println(
         "X-API-KEY: "
-        + String(API_KEY)
+        + String(MOBIUS_API_KEY)
     );
 
     client.println(
@@ -532,7 +536,7 @@ bool pollLcdCommand(){
 
     client.println(
         "X-API-KEY: " +
-        String(API_KEY));
+        String(MOBIUS_API_KEY));
 
     client.println(
         "X-AUTH-CUSTOM-LECTURE: " +

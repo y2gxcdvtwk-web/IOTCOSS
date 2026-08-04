@@ -1,4 +1,5 @@
 from flask import Flask, jsonify
+import os
 import requests
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
@@ -10,7 +11,7 @@ MOBIUS = "https://platform.iotcoss.ac.kr/api/proxy/swagger/Mobius"
 HEADERS = {
     "X-M2M-RI":"123",
     "X-M2M-Origin":"S",
-    "X-API-KEY":"REDACTED_MOBIUS_API_KEY_00000000",
+    "X-API-KEY": os.getenv("MOBIUS_API_KEY", ""),
     "X-AUTH-CUSTOM-LECTURE":"LCT_20260002",
     "X-AUTH-CUSTOM-CREATOR":"sjuADDHD",
     "Accept":"application/json"

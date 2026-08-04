@@ -4,15 +4,19 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-const char WIFI_SSID[] = "iPhone";
-const char WIFI_PASSWORD[] = "PASSWORD";
+#if __has_include("arduino_secrets.h")
+#include "arduino_secrets.h"
+#else
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define MOBIUS_API_KEY "YOUR_MOBIUS_API_KEY"
+#endif
 
 const char MOBIUS_HOST[] = "platform.iotcoss.ac.kr";
 const int MOBIUS_PORT = 443;
 const char MOBIUS_ROOT_PATH[] = "/api/proxy/swagger/Mobius";
 
 const char MOBIUS_ORIGIN[] = "S";
-const char MOBIUS_API_KEY[] = "REDACTED_MOBIUS_API_KEY_00000000";
 const char MOBIUS_LECTURE[] = "LCT_20260002";
 const char MOBIUS_CREATOR[] = "sjuADDHD";
 

@@ -1,11 +1,17 @@
 #include <WiFiS3.h>
 #include <ArduinoJson.h>
 
+#if __has_include("arduino_secrets.h")
+#include "arduino_secrets.h"
+#else
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define MOBIUS_API_KEY "YOUR_MOBIUS_API_KEY"
+#endif
+
 // ======================================================
 // Wi-Fi 설정
 // ======================================================
-const char WIFI_SSID[] = "iPhone";
-const char WIFI_PASSWORD[] = "PASSWORD";
 
 // ======================================================
 // Mobius oneM2M 서버 설정
@@ -18,8 +24,6 @@ const char MOBIUS_ROOT_PATH[] = "/api/proxy/swagger/Mobius";
 const char MOBIUS_ORIGIN[] = "S";
 
 // 보안을 위해 실제 API 키는 직접 입력
-const char MOBIUS_API_KEY[] = "REDACTED_MOBIUS_API_KEY_00000000";
-
 const char MOBIUS_LECTURE[] = "LCT_20260002";
 const char MOBIUS_CREATOR[] = "sjuADDHD";
 

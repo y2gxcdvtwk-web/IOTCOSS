@@ -2,9 +2,15 @@
 #include <WiFiSSLClient.h>
 #include <ArduinoJson.h>
 
+#if __has_include("arduino_secrets.h")
+#include "arduino_secrets.h"
+#else
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define MOBIUS_API_KEY "YOUR_MOBIUS_API_KEY"
+#endif
+
 // 1. Wi-Fi 및 Mobius 설정
-const char ssid[] = "SSID0000";      //[cite: 3]
-const char pass[] = "PASSWORD";      //[cite: 3]
 
 const char MOBIUS_HOST[] = "platform.iotcoss.ac.kr"; //[cite: 1, 3]
 const int MOBIUS_PORT = 443;                         //[cite: 1, 3]
@@ -72,7 +78,7 @@ void loop() {
 void connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) return; //[cite: 3]
   Serial.print("Connecting to Wi-Fi...");
-  while (WiFi.begin(ssid, pass) != WL_CONNECTED) { //[cite: 3]
+  while (WiFi.begin(WIFI_SSID, WIFI_PASSWORD) != WL_CONNECTED) { //[cite: 3]
     delay(1000);
     Serial.print(".");
   }
@@ -130,7 +136,7 @@ void pollLightCommand() {
                  "Accept: application/json\r\n" +
                  "X-M2M-RI: posture-light-01-" + String(millis()) + "\r\n" +
                  "X-M2M-Origin: S\r\n" +
-                 "X-API-KEY: REDACTED_MOBIUS_API_KEY_00000000\r\n" +
+                 "X-API-KEY: " + MOBIUS_API_KEY + "\r\n" +
                  "X-AUTH-CUSTOM-LECTURE: LCT_20260002\r\n" +
                  "X-AUTH-CUSTOM-CREATOR: sjuADDHD\r\n" +
                  "Connection: close\r\n\r\n"); //[cite: 2, 3]

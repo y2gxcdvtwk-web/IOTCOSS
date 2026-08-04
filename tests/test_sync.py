@@ -9,12 +9,12 @@ from app.store import SessionStore
 from app.sync import AnalyticsSynchronizer
 
 
-def test_blank_environment_does_not_remove_fixed_mobius_headers(monkeypatch):
+def test_blank_environment_keeps_api_key_blank(monkeypatch):
     monkeypatch.setenv("MOBIUS_API_KEY", "")
     monkeypatch.setenv("MOBIUS_LECTURE", "")
     monkeypatch.setenv("MOBIUS_CREATOR", "")
     settings = Settings()
-    assert settings.mobius_api_key == "REDACTED_MOBIUS_API_KEY_00000000"
+    assert settings.mobius_api_key == ""
     assert settings.mobius_lecture == "LCT_20260002"
     assert settings.mobius_creator == "sjuADDHD"
 

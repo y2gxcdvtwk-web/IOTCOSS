@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     mobius_read_retry_attempts: int = 5
     mobius_read_retry_delay_seconds: float = 0.25
     mobius_auto_register: bool = True
-    mobius_api_key: str = "REDACTED_MOBIUS_API_KEY_00000000"
+    mobius_api_key: str = ""
     mobius_lecture: str = "LCT_20260002"
     mobius_creator: str = "sjuADDHD"
     mobius_notification_uri: str = ""
@@ -41,13 +41,12 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
 
-    @field_validator("mobius_api_key", "mobius_lecture", "mobius_creator", mode="before")
+    @field_validator("mobius_lecture", "mobius_creator", mode="before")
     @classmethod
-    def keep_fixed_mobius_credentials(
+    def keep_fixed_mobius_metadata(
         cls, value: str | None, info: ValidationInfo
     ) -> str:
         fixed = {
-            "mobius_api_key": "REDACTED_MOBIUS_API_KEY_00000000",
             "mobius_lecture": "LCT_20260002",
             "mobius_creator": "sjuADDHD",
         }
